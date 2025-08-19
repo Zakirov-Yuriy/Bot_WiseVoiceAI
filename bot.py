@@ -28,6 +28,7 @@ import requests
 import json
 from dotenv import load_dotenv
 
+
 # Загрузка переменных окружения из .env файла
 load_dotenv()
 
@@ -665,9 +666,8 @@ def cleanup(files: list[str]):
             logger.warning(f"Ошибка удаления {path}: {e}")
 
 
-import requests
-import json
-OPENROUTER_API_KEY = "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"
+
+
 
 
 def generate_summary_timecodes(segments: list[dict]) -> str:
