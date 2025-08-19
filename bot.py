@@ -1,3 +1,4 @@
+
 import asyncio
 import logging
 import os
@@ -23,20 +24,34 @@ from telegram.ext import (
     ContextTypes,
     CallbackQueryHandler,
 )
+import requests
+import json
+from dotenv import load_dotenv
 
-# Конфигурация AssemblyAI
-ASSEMBLYAI_API_KEY = "74f0dded2b1949a7be47a3adc3473194"
+# Загрузка переменных окружения из .env файла
+load_dotenv()
+
+# Конфигурация из переменных окружения
+TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
+ASSEMBLYAI_API_KEY = os.getenv('ASSEMBLYAI_API_KEY')
+OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY')
+FFMPEG_DIR = os.getenv('FFMPEG_PATH', r"D:\Programming\ffmpeg-7.1.1-essentials_build\bin")
+FONT_PATH = os.getenv('FONT_PATH', r"C:\Users\zakco\PycharmProjects\WiseVoiceAI\DejaVuSans.ttf")
+
+# Проверка обязательных переменных
+if not all([TELEGRAM_BOT_TOKEN, ASSEMBLYAI_API_KEY, OPENROUTER_API_KEY]):
+    raise ValueError("Не все обязательные переменные окружения установлены")
+
 ASSEMBLYAI_BASE_URL = "https://api.assemblyai.com/v2"
 HEADERS = {"authorization": ASSEMBLYAI_API_KEY}
-
-# Конфигурация FFMPEG
-FFMPEG_DIR = r"D:\Programming\ffmpeg-7.1.1-essentials_build\bin"
-os.environ["PATH"] += os.pathsep + FFMPEG_DIR
 
 # Настройки обработки
 SEGMENT_DURATION = 60  # seconds
 MESSAGE_CHUNK_SIZE = 4000  # characters
 API_TIMEOUT = 300  # seconds
+
+# Добавление FFMPEG в PATH
+os.environ["PATH"] += os.pathsep + FFMPEG_DIR
 
 # Локализация (упрощенная версия)
 locales = {
@@ -399,6 +414,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Формируем тексты
         text_with_speakers = format_results_with_speakers(results)
         text_plain = format_results_plain(results)
+        timecodes_text = generate_summary_timecodes(results)  # results из process_audio_file
+
 
         # Создаем временные PDF файлы
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as pdf_file1, \
@@ -420,6 +437,18 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 document=InputFile(f2, filename="transcription_plain.pdf"),
                 caption=get_string('caption_plain', lang)
             )
+
+            #  PDF файл с тайм кодами
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as pdf_file3:
+            pdf_path_timecodes = pdf_file3.name
+            save_text_to_pdf(timecodes_text, pdf_path_timecodes)
+
+        with open(pdf_path_timecodes, 'rb') as f3:
+            await update.message.reply_document(
+                document=InputFile(f3, filename="transcription_timecodes.pdf"),
+                caption="Транскрипт с тайм-кодами"
+            )
+        os.remove(pdf_path_timecodes)
 
         # Удаляем временные файлы
         os.remove(pdf_path_with_speakers)
@@ -459,24 +488,51 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
     context.user_data['lang'] = lang
 
-    # Определяем тип файла
+    # Определяем тип файла и MIME-тип
+    file = None
+    mime_type = None
     file_types = {
-        update.message.audio: "audio",
-        update.message.voice: "voice",
-        update.message.video: "video",
-        update.message.document: "document"
+        update.message.audio: ("audio", update.message.audio.mime_type if update.message.audio else None),
+        update.message.voice: ("voice", update.message.voice.mime_type if update.message.voice else None),
+        update.message.video: ("video", update.message.video.mime_type if update.message.video else None),
+        update.message.document: ("document", update.message.document.mime_type if update.message.document else None)
     }
 
-    for file_source, file_type in file_types.items():
+    for file_source, (file_type, mime) in file_types.items():
         if file_source:
             file = file_source
+            mime_type = mime
             break
     else:
         await update.message.reply_text(get_string('unsupported_format', lang))
         return
 
-    # Создаем временный файл
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as temp_file:
+    # Проверяем поддерживаемые MIME-типы
+    supported_mime_types = [
+        'audio/mp4', 'audio/x-m4a', 'audio/mpeg', 'audio/ogg', 'audio/wav',
+        'video/mp4', 'video/quicktime', 'application/octet-stream'
+    ]
+
+    if mime_type and mime_type not in supported_mime_types:
+        await update.message.reply_text(get_string('unsupported_format', lang))
+        return
+
+    # Определяем расширение файла на основе MIME-типа
+    mime_to_extension = {
+        'audio/mp4': '.m4a',
+        'audio/x-m4a': '.m4a',
+        'audio/mpeg': '.mp3',
+        'audio/ogg': '.ogg',
+        'audio/wav': '.wav',
+        'video/mp4': '.mp4',
+        'video/quicktime': '.mov',
+        'application/octet-stream': '.m4a'  # часто M4A приходит с этим MIME-типом
+    }
+
+    file_extension = mime_to_extension.get(mime_type, '.mp3')
+
+    # Создаем временный файл с правильным расширением
+    with tempfile.NamedTemporaryFile(delete=False, suffix=file_extension) as temp_file:
         temp_path = temp_file.name
 
     progress_message = await update.message.reply_text(
@@ -486,6 +542,14 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Скачиваем файл из Telegram
         tg_file = await file.get_file()
         await tg_file.download_to_drive(temp_path)
+
+        # Если это M4A файл или другой формат, конвертируем в MP3
+        if file_extension in ['.m4a', '.mp4', '.mov', '.ogg', '.wav']:
+            await progress_message.edit_text("Конвертирую аудио в MP3...")
+            converted_path = await convert_to_mp3(temp_path)
+            os.remove(temp_path)  # удаляем оригинальный файл
+            temp_path = converted_path
+
         await update.message.reply_text(get_string('uploading_file', lang))
 
         # Обрабатываем аудио
@@ -500,6 +564,7 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Формируем тексты
         text_with_speakers = format_results_with_speakers(results)
         text_plain = format_results_plain(results)
+        timecodes_text = generate_summary_timecodes(results)
 
         # Создаем временные PDF файлы
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as pdf_file1, \
@@ -522,6 +587,18 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 caption=get_string('caption_plain', lang)
             )
 
+        # PDF файл с тайм кодами
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as pdf_file3:
+            pdf_path_timecodes = pdf_file3.name
+            save_text_to_pdf(timecodes_text, pdf_path_timecodes)
+
+        with open(pdf_path_timecodes, 'rb') as f3:
+            await update.message.reply_document(
+                document=InputFile(f3, filename="transcription_timecodes.pdf"),
+                caption="Транскрипт с тайм-кодами"
+            )
+        os.remove(pdf_path_timecodes)
+
         # Удаляем временные файлы
         os.remove(pdf_path_with_speakers)
         os.remove(pdf_path_plain)
@@ -540,6 +617,132 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 os.remove(temp_path)
             except Exception as e:
                 logger.warning(f"Ошибка удаления временного файла: {e}")
+
+
+async def convert_to_mp3(input_path: str) -> str:
+    """Конвертирует аудиофайл в MP3 формат"""
+    output_path = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3").name
+
+    ffmpeg_path = os.path.join(FFMPEG_DIR, "ffmpeg.exe")
+    command = [
+        ffmpeg_path,
+        "-i", input_path,
+        "-acodec", "libmp3lame",
+        "-q:a", "2",  # качество аудио (0-9, где 0 - лучшее)
+        "-y",  # overwrite output file
+        output_path
+    ]
+
+    try:
+        process = await asyncio.create_subprocess_exec(
+            *command,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        await process.communicate()
+
+        if process.returncode != 0:
+            raise RuntimeError(f"Ошибка конвертации файла: {input_path}")
+
+        return output_path
+    except Exception as e:
+        logger.error(f"Ошибка конвертации: {str(e)}")
+        # Если конвертация не удалась, пробуем обработать как есть
+        return input_path
+
+@staticmethod
+def cleanup(files: list[str]):
+    """Удаляет временные файлы"""
+    for path in files:
+        try:
+            if os.path.isfile(path):
+                os.remove(path)
+            elif os.path.isdir(path):
+                for f in os.listdir(path):
+                    os.remove(os.path.join(path, f))
+                os.rmdir(path)
+        except Exception as e:
+            logger.warning(f"Ошибка удаления {path}: {e}")
+
+
+import requests
+import json
+OPENROUTER_API_KEY = "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"
+
+
+def generate_summary_timecodes(segments: list[dict]) -> str:
+    """
+    segments: [{"speaker": "?", "text": "текст сегмента"}]
+    Возвращает текст с тайм-кодами и кратким описанием.
+    """
+    url = "https://openrouter.ai/api/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json"
+    }
+
+    # Собираем весь текст с тайм-кодами для отправки
+    full_text_with_timestamps = ""
+    for i, seg in enumerate(segments):
+        start_minute = i * SEGMENT_DURATION // 60
+        start_second = i * SEGMENT_DURATION % 60
+        start_code = f"{start_minute:02}:{start_second:02}"
+
+        full_text_with_timestamps += f"[{start_code}] {seg['text']}\n\n"
+
+    # Создаем промпт для анализа всего текста
+    prompt = f"""
+Проанализируй полную расшифровку аудио с тайм-кодами и создай структурированное оглавление (тайм-коды).
+
+Текст с тайм-кодами:
+{full_text_with_timestamps}
+
+Инструкции:
+1. Выдели ОСНОВНЫЕ смысловые блоки и темы, а не каждую мелкую реплику
+2. Группируй несколько последовательных сегментов в один логический блок
+3. Для каждого блока укажи время начала (первый MM:SS в этом блоке)
+4. Дай емкое и информативное описание содержания блока
+5. Сохраняй хронологический порядок
+
+Формат ответа:
+Тайм-коды
+
+MM:SS - [Основная тема/событие]
+[Дополнительные детали, если нужны]
+
+MM:SS - [Следующая основная тема]
+...
+
+Пример:
+00:00 - Приветствие и сбор участников
+01:10 - Обсуждение текущих проблем: трудности с трендвотчингом и результаты тестов
+06:35 - Организация работы с лидерами контент-завода
+"""
+
+    data = {
+        "model": "openai/gpt-oss-20b:free",
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.2
+    }
+
+    response = requests.post(url, headers=headers, data=json.dumps(data))
+    response.raise_for_status()
+    res_json = response.json()
+
+    try:
+        return res_json['choices'][0]['message']['content'].strip()
+    except (KeyError, IndexError):
+        # Fallback: если AI не сработал, вернем простой список тайм-кодов
+        fallback_result = "Тайм-коды\n\n"
+        for i, seg in enumerate(segments):
+            start_minute = i * SEGMENT_DURATION // 60
+            start_second = i * SEGMENT_DURATION % 60
+            start_code = f"{start_minute:02}:{start_second:02}"
+            fallback_result += f"{start_code} - {seg['text'][:50]}...\n"
+        return fallback_result
+
+
+
 
 
 async def process_audio_file(file_path: str, progress_callback=None) -> list[dict]:
@@ -585,7 +788,7 @@ async def process_audio_file(file_path: str, progress_callback=None) -> list[dic
 def main():
     """Запуск бота"""
     app = ApplicationBuilder() \
-        .token("7295836546:AAGWYalfQ6pkkCRPIK6LcegMDBFFM5SjAN0") \
+        .token(TELEGRAM_BOT_TOKEN) \
         .read_timeout(60) \
         .write_timeout(60) \
         .pool_timeout(60) \
@@ -594,7 +797,8 @@ def main():
     # Регистрация обработчиков
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(
-        filters.AUDIO | filters.VOICE | filters.VIDEO | filters.Document.AUDIO | filters.Document.VIDEO,
+        filters.AUDIO | filters.VOICE | filters.VIDEO |
+        filters.Document.ALL,
         handle_file
     ))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
