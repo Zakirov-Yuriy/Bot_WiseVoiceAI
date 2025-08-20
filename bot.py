@@ -68,7 +68,7 @@ locales = {
         'caption_plain': "Транскрипция (текст без спикеров)",
         'invalid_link': "Пожалуйста, отправьте действительную ссылку на YouTube",
         'unsupported_format': "Неподдерживаемый формат файла",
-        'try_again': "Попробуйте еще раз или обратитесь в поддержку",
+        'try_again': "Отправляйте ссылки или файлы прямо сюда ⬇️ — и бот сделает транскрибацию за вас",
         'timeout_error': "Превышено время ожидания обработки",
         'telegram_timeout': "Таймаут соединения с Telegram",
     },
@@ -84,7 +84,7 @@ locales = {
         'caption_plain': "Transcript (plain text)",
         'invalid_link': "Please provide a valid YouTube link",
         'unsupported_format': "Unsupported file format",
-        'try_again': "Please try again or contact support",
+        'try_again': "Send links or files here ⬇️ and the bot will transcribe them for you",
         'timeout_error': "Processing timeout exceeded",
         'telegram_timeout': "Telegram connection timeout",
     }
@@ -257,7 +257,8 @@ async def update_progress(progress, message: Message, lang: str):
         # Троттлинг для числового прогресса
         current_time = time.time()
         last_update = LAST_UPDATE_TIMES.get(message.message_id, 0)
-        if current_time - last_update < 2.0 and progress < 1.0:
+        # УВЕЛИЧЬТЕ ЗНАЧЕНИЕ ТАЙМАУТА ЗДЕСЬ (например, до 3.5 секунд)
+        if current_time - last_update < 3.5 and progress < 1.0:
             return
 
         # Нормализация и отрисовка бара
@@ -269,8 +270,8 @@ async def update_progress(progress, message: Message, lang: str):
         bar = filled_char * filled + empty_char * (bar_length - filled)
         percent = int(progress * 100)
 
-        base_text = get_string('processing_audio', lang)
-        text = base_text.format(bar=bar, percent=percent)
+        base_text = get_string('processing_audio', lang) + "\n"  # Добавляем перенос строки
+        text = base_text.format(bar=bar, percent=percent).replace('...', '...\n')
 
         await message.edit_text(text)
         LAST_UPDATE_TIMES[message.message_id] = current_time
@@ -297,24 +298,51 @@ async def download_youtube_audio(url: str, progress_callback: callable = None) -
         """Синхронное скачивание через yt-dlp"""
         temp_dir = tempfile.gettempdir()
         unique_id = str(uuid.uuid4())
-        outtmpl = os.path.join(temp_dir, f"{unique_id}.%(ext)s")
+        # Генерируем шаблон без сложных замен. yt-dlp сам добавит расширение.
+        outtmpl = os.path.join(temp_dir, f"{unique_id}")
 
         ydl_opts = {
             "format": "bestaudio/best",
-            "outtmpl": outtmpl,
+            "outtmpl": outtmpl,  # Передаем путь БЕЗ расширения
             "ffmpeg_location": FFMPEG_DIR,
             "progress_hooks": [progress_hook],
             "postprocessors": [{
                 "key": "FFmpegExtractAudio",
-                "preferredcodec": "mp3",
+                "preferredcodec": "mp3",  # Четко указываем, что хотим mp3
             }],
             "quiet": True,
+            "no_warnings": False,
+            "extract_flat": False,
+            "http_headers": {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "en-us,en;q=0.5",
+                "Accept-Encoding": "gzip,deflate",
+                "Accept-Charset": "ISO-8859-1,utf-8;q=0.7,*;q=0.7",
+                "Connection": "keep-alive",
+            },
+            "extractor_args": {
+                "youtube": {
+                    "player_client": ["android", "web"],
+                }
+            },
         }
 
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=True)
-                return ydl.prepare_filename(info).replace(".webm", ".mp3").replace(".m4a", ".mp3")
+                # После обработки ищем файл, который фактически создал yt-dlp с пост-процессингом.
+                # Он будет иметь наш уникальный ID и расширение .mp3
+                expected_filename = f"{outtmpl}.mp3"
+                if os.path.exists(expected_filename):
+                    return expected_filename
+                else:
+                    # Фолбэк: пытаемся найти любой файл с нашим уникальным ID в temp_dir
+                    for file in os.listdir(temp_dir):
+                        if file.startswith(os.path.basename(unique_id)):
+                            return os.path.join(temp_dir, file)
+                    # Если ничего не найдено, падаем с ошибкой
+                    raise FileNotFoundError(f"Скачанный аудиофайл не найден по пути: {expected_filename}")
         except Exception as e:
             logger.error(f"Ошибка скачивания YouTube: {str(e)}")
             raise RuntimeError(f"Ошибка скачивания видео: {str(e)}") from e
@@ -391,7 +419,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     percent_value = float(percent.strip().replace('%', ''))
                     filled = int(percent_value / 10)
                     bar = filled_char * filled + empty_char * (10 - filled)
-                    text = get_string('downloading_video', lang).format(bar=bar, percent=percent)
+                    text = get_string('downloading_video', lang).format(bar=bar, percent=percent).replace('...', '...\n')
+
                     await progress_message.edit_text(text)
                 except:
                     text = get_string('downloading_video', lang).format(bar='', percent=percent)
