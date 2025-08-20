@@ -1,4 +1,3 @@
-
 import asyncio
 import logging
 import os
@@ -27,7 +26,6 @@ from telegram.ext import (
 import requests
 import json
 from dotenv import load_dotenv
-
 
 # Загрузка переменных окружения из .env файла
 load_dotenv()
@@ -71,6 +69,7 @@ locales = {
         'try_again': "Отправляйте ссылки или файлы прямо сюда ⬇️ — и бот сделает транскрибацию за вас",
         'timeout_error': "Превышено время ожидания обработки",
         'telegram_timeout': "Таймаут соединения с Telegram",
+
     },
     'en': {
         'welcome': "Hi! Send me an audio file or YouTube link for transcription.",
@@ -87,6 +86,7 @@ locales = {
         'try_again': "Send links or files here ⬇️ and the bot will transcribe them for you",
         'timeout_error': "Processing timeout exceeded",
         'telegram_timeout': "Telegram connection timeout",
+
     }
 }
 
@@ -210,10 +210,10 @@ async def transcribe_with_assemblyai(audio_url: str) -> dict:
     }
     payload = {
         "audio_url": audio_url,
-        "speaker_labels": True,          # включаем спикеров
-        "language_detection": True,      # пусть определяет язык
-        "punctuate": True,               # расставит точки/запятые
-        "format_text": True              # сделает читабельным
+        "speaker_labels": True,  # включаем спикеров
+        "language_detection": True,  # пусть определяет язык
+        "punctuate": True,  # расставит точки/запятые
+        "format_text": True  # сделает читабельным
     }
 
     async with httpx.AsyncClient() as client:
@@ -237,7 +237,6 @@ async def transcribe_with_assemblyai(audio_url: str) -> dict:
             elif result["status"] == "error":
                 raise Exception(result["error"])
             await asyncio.sleep(3)
-
 
 
 async def update_progress(progress, message: Message, lang: str):
@@ -281,7 +280,6 @@ async def update_progress(progress, message: Message, lang: str):
             logger.warning(f"Ошибка обновления прогресса: {str(e)}")
     except Exception as e:
         logger.warning(f"Не удалось обновить прогресс: {str(e)}")
-
 
 
 async def download_youtube_audio(url: str, progress_callback: callable = None) -> str:
@@ -419,7 +417,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     percent_value = float(percent.strip().replace('%', ''))
                     filled = int(percent_value / 10)
                     bar = filled_char * filled + empty_char * (10 - filled)
-                    text = get_string('downloading_video', lang).format(bar=bar, percent=percent).replace('...', '...\n')
+                    text = get_string('downloading_video', lang).format(bar=bar, percent=percent).replace('...',
+                                                                                                          '...\n')
 
                     await progress_message.edit_text(text)
                 except:
@@ -445,7 +444,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text_with_speakers = format_results_with_speakers(results)
         text_plain = format_results_plain(results)
         timecodes_text = generate_summary_timecodes(results)  # results из process_audio_file
-
 
         # Создаем временные PDF файлы
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as pdf_file1, \
@@ -680,6 +678,7 @@ async def convert_to_mp3(input_path: str) -> str:
         # Если конвертация не удалась, пробуем обработать как есть
         return input_path
 
+
 @staticmethod
 def cleanup(files: list[str]):
     """Удаляет временные файлы"""
@@ -693,10 +692,6 @@ def cleanup(files: list[str]):
                 os.rmdir(path)
         except Exception as e:
             logger.warning(f"Ошибка удаления {path}: {e}")
-
-
-
-
 
 
 def generate_summary_timecodes(segments: list[dict]) -> str:
@@ -771,15 +766,12 @@ MM:SS - [Следующая основная тема]
         return fallback_result
 
 
-
-
-
 async def process_audio_file(file_path: str, progress_callback=None) -> list[dict]:
     """Загружает файл в AssemblyAI, ждёт транскрипт и возвращает список сегментов"""
     try:
         if progress_callback:
             await progress_callback(0.01)
-            await progress_callback("Загружаю файл в AssemblyAI...")
+            await progress_callback("Загружаю файл в Bot AI...")
 
         audio_url = await upload_to_assemblyai(file_path)
 
@@ -809,9 +801,6 @@ async def process_audio_file(file_path: str, progress_callback=None) -> list[dic
     except Exception as e:
         logger.error(f"Ошибка в process_audio_file: {e}")
         return []
-
-
-
 
 
 def main():
