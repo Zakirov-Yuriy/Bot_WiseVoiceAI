@@ -250,14 +250,10 @@ async def update_progress(progress, message, lang: str):
         progress = max(0.0, min(1.0, float(progress)))
         bar_length = 10
         filled = int(progress * bar_length)
-        filled_char = '🟪'
-        empty_char = '⬜'
-        bar = filled_char * filled + empty_char * (bar_length - filled)
+        bar = '🟪' * filled + '⬜' * (bar_length - filled)
         percent = int(progress * 100)
 
-        base_text = get_string('processing_audio', lang) + "\n"
-        text = base_text.format(bar=bar, percent=percent).replace('...', '...\n')
-
+        text = f"⚙️ *Обработка аудио...*\n{bar} {percent}%"
         await message.edit(text)
         LAST_UPDATE_TIMES[message.id] = current_time
 
@@ -468,40 +464,55 @@ async def process_audio_file(file_path: str, progress_callback=None) -> list[dic
         return []
 
 
-async def handle_message(event):
+async def handle_message(event, client):
     """Обработчик входящих сообщений"""
-    global message
     try:
         lang = 'ru'
         message = event.message
+        chat_id = message.chat_id
+
+        # Красивые эмодзи для статусов
+        EMOJI = {
+            'downloading': '📥',
+            'processing': '⚙️',
+            'success': '✅',
+            'error': '❌',
+            'file': '📄',
+            'speakers': '👥',
+            'text': '📝',
+            'timecodes': '⏱️'
+        }
 
         if message.text and message.text.startswith(('http://', 'https://')):
             # Обработка YouTube ссылки
             url = message.text.strip()
-            progress_message = await message.reply(get_string('downloading_video', lang).format(bar='', percent='0%'))
+            progress_message = await client.send_message(chat_id,
+                                                         f"{EMOJI['downloading']} Скачивание видео...\n"
+                                                         f"⬜⬜⬜⬜⬜⬜⬜⬜⬜⬜ 0%"
+                                                         )
 
             async def download_progress(data):
                 if data.get('status') == 'downloading':
                     percent = data.get('_percent_str', '0%')
-                    filled_char = '🟪'
-                    empty_char = '⬜'
                     try:
                         percent_value = float(percent.strip().replace('%', ''))
-                        filled = int(percent_value / 10)
-                        bar = filled_char * filled + empty_char * (10 - filled)
-                        text = get_string('downloading_video', lang).format(bar=bar, percent=percent).replace('...',
-                                                                                                              '...\n')
+                        filled = min(10, int(percent_value / 10))
+                        bar = '🟪' * filled + '⬜' * (10 - filled)
+                        text = f"{EMOJI['downloading']} Скачивание видео...\n{bar} {percent}"
                         await progress_message.edit(text)
                     except:
-                        text = get_string('downloading_video', lang).format(bar='', percent=percent)
+                        text = f"{EMOJI['downloading']} Скачивание видео...\n{percent}"
                         await progress_message.edit(text)
 
             audio_path = await download_youtube_audio(url, progress_callback=download_progress)
-            await progress_message.edit(get_string('processing_audio', lang).format(bar='', percent='0'))
+            await progress_message.edit(f"{EMOJI['processing']} Обработка аудио...\n⬜⬜⬜⬜⬜⬜⬜⬜⬜⬜ 0%")
 
         elif message.media:
             # Обработка медиафайла
-            progress_message = await message.reply(get_string('processing_audio', lang).format(bar='', percent='0%'))
+            progress_message = await client.send_message(chat_id,
+                                                         f"{EMOJI['processing']} Обработка аудио...\n"
+                                                         f"⬜⬜⬜⬜⬜⬜⬜⬜⬜⬜ 0%"
+                                                         )
 
             # Скачиваем файл
             temp_path = tempfile.NamedTemporaryFile(delete=False, suffix=".temp").name
@@ -515,7 +526,7 @@ async def handle_message(event):
                 audio_path = temp_path
 
         else:
-            await message.reply(get_string('invalid_link', lang))
+            await client.send_message(chat_id, f"{EMOJI['error']} {get_string('invalid_link', lang)}")
             return
 
         # Обработка аудио
@@ -524,7 +535,7 @@ async def handle_message(event):
             progress_callback=lambda p: update_progress(p, progress_message, lang))
 
         if not results:
-            await progress_message.edit(get_string('no_speech', lang))
+            await progress_message.edit(f"{EMOJI['error']} {get_string('no_speech', lang)}")
             return
 
         # Создаем PDF файлы
@@ -540,10 +551,18 @@ async def handle_message(event):
             save_text_to_pdf(text_plain, pdf2.name)
             save_text_to_pdf(timecodes_text, pdf3.name)
 
-            # Отправляем файлы
-            await message.reply(get_string('caption_with_speakers', lang), file=pdf1.name)
-            await message.reply(get_string('caption_plain', lang), file=pdf2.name)
-            await message.reply("Транскрипт с тайм-кодами", file=pdf3.name)
+            # Отправляем файлы с красивыми подписями
+            await client.send_file(chat_id, pdf1.name,
+                                   caption=f"{EMOJI['speakers']} Транскрипция с распознаванием спикеров\n"
+                                           f"Разделение по говорящим с указанием спикеров")
+
+            await client.send_file(chat_id, pdf2.name,
+                                   caption=f"{EMOJI['text']} Транскрипция (текст без спикеров)\n"
+                                           f"Полный текст без разделения по спикерам")
+
+            await client.send_file(chat_id, pdf3.name,
+                                   caption=f"{EMOJI['timecodes']} Транскрипт с тайм-кодами\n"
+                                           f"Структурированное оглавление с временными метками")
 
         # Удаляем временные файлы
         for path in [audio_path, pdf1.name, pdf2.name, pdf3.name]:
@@ -552,11 +571,14 @@ async def handle_message(event):
             except:
                 pass
 
-        await message.reply(get_string('done', lang))
+        await client.send_message(chat_id,
+                                  f"{EMOJI['success']} Обработка завершена!\n"
+                                  f"Все файлы успешно сгенерированы и отправлены"
+                                  )
 
     except Exception as e:
-        error_text = get_string('error', lang).format(error=str(e))
-        await message.reply(error_text)
+        error_text = f"{EMOJI['error']} Произошла ошибка:\n{str(e)}"
+        await client.send_message(chat_id, error_text)
         logger.exception("Ошибка обработки сообщения")
 
 
@@ -578,19 +600,32 @@ async def main():
     print("Запуск клиента...")
     print("Userbot успешно запущен!")
 
-    # Ваши обработчики событий
-    @client.on(events.NewMessage(pattern=r'https?://'))
-    async def link_handler(event):
-        await handle_message(event)
+    # Единый обработчик для всех типов сообщений
+    @client.on(events.NewMessage())
+    async def universal_handler(event):
+        message = event.message
 
-    @client.on(events.NewMessage(func=lambda e: e.message.media))
-    async def media_handler(event):
-        await handle_message(event)
+        # Игнорируем служебные сообщения и команды
+        if message.text and message.text.startswith('/'):
+            return
+
+        # Обрабатываем только подходящие сообщения
+        if (message.text and message.text.startswith(('http://', 'https://'))) or message.media:
+            await handle_message(event, client)
 
     @client.on(events.NewMessage(pattern='/start'))
     async def start_handler(event):
         lang = 'ru'
-        await event.reply(get_string('welcome', lang))
+        welcome_text = (
+            "🎙️ *Добро пожаловать в Transcribe To!*\n\n"
+            "Я помогу вам преобразовать аудио и видео в текст:\n\n"
+            "• 🎵 Аудиофайлы любого формата\n"
+            "• 📺 YouTube видео по ссылке\n"
+            "• 👥 Распознавание разных спикеров\n"
+            "• ⏱️ Тайм-коды и структурирование\n\n"
+            "Просто отправьте мне аудиофайл или ссылку на YouTube!"
+        )
+        await event.reply(welcome_text, parse_mode='markdown')
 
     logger.info("Userbot запущен")
     await client.run_until_disconnected()
