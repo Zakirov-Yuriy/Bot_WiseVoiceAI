@@ -27,8 +27,6 @@ import requests
 import json
 from dotenv import load_dotenv
 
-
-
 # Загрузка переменных окружения из .env файла
 load_dotenv()
 
@@ -53,18 +51,6 @@ API_TIMEOUT = 300  # seconds
 
 # Добавление FFMPEG в PATH
 os.environ["PATH"] += os.pathsep + FFMPEG_DIR
-
-
-
-
-
-
-
-
-
-
-
-
 
 # Локализация (упрощенная версия)
 locales = {
@@ -463,14 +449,11 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as pdf_file1, \
                 tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as pdf_file2:
 
-
             pdf_path_with_speakers = pdf_file1.name
             pdf_path_plain = pdf_file2.name
 
-
             save_text_to_pdf(text_with_speakers, pdf_path_with_speakers)
             save_text_to_pdf(text_plain, pdf_path_plain)
-
 
         # Отправляем PDF файлы
         with open(pdf_path_with_speakers, 'rb') as f1, open(pdf_path_plain, 'rb') as f2:
@@ -482,9 +465,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 document=InputFile(f2, filename="transcription_plain.pdf"),
                 caption=get_string('caption_plain', lang)
             )
-
-
-
 
             #  PDF файл с тайм кодами
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as pdf_file3:
@@ -521,58 +501,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     finally:
         # Предложение попробовать снова
         await update.message.reply_text(get_string('try_again', lang))
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -892,8 +820,6 @@ def main():
         handle_file
     ))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
-
-
 
     logger.info("Бот запущен")
     app.run_polling()
