@@ -8,6 +8,7 @@ import httpx
 import uuid
 import time
 import telegram.error
+from telegram import Message, Update, InputFile
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib.pagesizes import A4
@@ -26,7 +27,7 @@ import requests
 import json
 from dotenv import load_dotenv
 
-from telegram import Message, Update, InputFile, InlineKeyboardButton, InlineKeyboardMarkup
+
 
 # Загрузка переменных окружения из .env файла
 load_dotenv()
@@ -54,14 +55,14 @@ API_TIMEOUT = 300  # seconds
 os.environ["PATH"] += os.pathsep + FFMPEG_DIR
 
 
-def create_transcription_keyboard() -> InlineKeyboardMarkup:
-    """Создает инлайн-клавиатуру с тремя кнопками для выбора типа транскрипта."""
-    keyboard = [
-        [InlineKeyboardButton("Транскрибация со спикерами", callback_data='get_speakers')],
-        [InlineKeyboardButton("Транскрибация (текст)", callback_data='get_plain')],
-        [InlineKeyboardButton("Транскрибация с тайм-кодами", callback_data='get_timecodes')]
-    ]
-    return InlineKeyboardMarkup(keyboard)
+
+
+
+
+
+
+
+
 
 
 
@@ -460,30 +461,30 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Создаем временные PDF файлы
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as pdf_file1, \
-                tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as pdf_file2, \
-                tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as pdf_file3:
+                tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as pdf_file2:
+
 
             pdf_path_with_speakers = pdf_file1.name
             pdf_path_plain = pdf_file2.name
-            pdf_path_timecodes = pdf_file3.name
+
 
             save_text_to_pdf(text_with_speakers, pdf_path_with_speakers)
             save_text_to_pdf(text_plain, pdf_path_plain)
-            save_text_to_pdf(timecodes_text, pdf_path_timecodes)
 
-        # ВМЕСТО ОТПРАВКИ ФАЙЛОВ - сохраняем пути в context.user_data
-        user_id = update.effective_user.id
-        context.user_data[f'{user_id}_speakers_pdf'] = pdf_path_with_speakers
-        context.user_data[f'{user_id}_plain_pdf'] = pdf_path_plain
-        context.user_data[f'{user_id}_timecodes_pdf'] = pdf_path_timecodes
 
-        # Отправляем сообщение с кнопками
-        await update.message.reply_text(
-            get_string('done', lang),
-            reply_markup=create_transcription_keyboard()
-        )
+        # Отправляем PDF файлы
+        with open(pdf_path_with_speakers, 'rb') as f1, open(pdf_path_plain, 'rb') as f2:
+            await update.message.reply_document(
+                document=InputFile(f1, filename="transcription_with_speakers.pdf"),
+                caption=get_string('caption_with_speakers', lang)
+            )
+            await update.message.reply_document(
+                document=InputFile(f2, filename="transcription_plain.pdf"),
+                caption=get_string('caption_plain', lang)
+            )
 
-    except asyncio.TimeoutError:
+
+
 
             #  PDF файл с тайм кодами
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as pdf_file3:
@@ -521,57 +522,57 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Предложение попробовать снова
         await update.message.reply_text(get_string('try_again', lang))
 
-async def handle_button_press(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обрабатывает нажатия на инлайн-кнопки."""
-    query = update.callback_query
-    await query.answer()  # Подтверждаем нажатие кнопки (убираем "часики")
 
-    user_id = update.effective_user.id
-    lang = context.user_data.get('lang', 'ru')
 
-    # Определяем, какой файл запросили
-    data = query.data
-    file_key = None
-    filename = None
-    caption = None
 
-    if data == 'get_speakers':
-        file_key = f'{user_id}_speakers_pdf'
-        filename = "transcription_with_speakers.pdf"
-        caption = get_string('caption_with_speakers', lang)
-    elif data == 'get_plain':
-        file_key = f'{user_id}_plain_pdf'
-        filename = "transcription_plain.pdf"
-        caption = get_string('caption_plain', lang)
-    elif data == 'get_timecodes':
-        file_key = f'{user_id}_timecodes_pdf'
-        filename = "transcription_timecodes.pdf"
-        caption = "Транскрипт с тайм-кодами"
 
-    # Проверяем, существует ли запрошенный файл во временном хранилище
-    if file_key and file_key in context.user_data:
-        file_path = context.user_data[file_key]
-        try:
-            # Отправляем документ
-            with open(file_path, 'rb') as file:
-                await context.bot.send_document(
-                    chat_id=query.message.chat_id,
-                    document=InputFile(file, filename=filename),
-                    caption=caption
-                )
-            # Удаляем отправленный файл с диска
-            os.remove(file_path)
-            # Удаляем ключ из user_data
-            del context.user_data[file_key]
 
-        except FileNotFoundError:
-            await query.edit_message_text("Файл более недоступен для скачивания. Пожалуйста, запустите процесс заново.")
-        except Exception as e:
-            logger.error(f"Ошибка отправки файла {filename}: {e}")
-            await query.edit_message_text(get_string('error', lang).format(error="при отправке файла"))
-    else:
-        # Если файл не найден в user_data (например, уже был отправлен и удален)
-        await query.edit_message_text("Данный вариант транскрипции уже был отправлен или более недоступен.")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -891,8 +892,8 @@ def main():
         handle_file
     ))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
-    # ДОБАВЛЯЕМ НОВЫЙ ОБРАБОТЧИК НАЖАТИЙ НА КНОПКИ
-    app.add_handler(CallbackQueryHandler(handle_button_press))
+
+
 
     logger.info("Бот запущен")
     app.run_polling()
