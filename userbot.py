@@ -4,22 +4,22 @@ import os
 import tempfile
 import subprocess
 from getpass import getpass
-
+from PIL import Image, ImageDraw, ImageFont
+import io
 import yt_dlp
 import httpx
 import uuid
 import time
 import json
 import requests
-from telethon import TelegramClient, events, Button
-from telethon.errors import FloodWaitError, RPCError
-from telethon.tl.types import DocumentAttributeAudio, DocumentAttributeVideo, DocumentAttributeFilename
+from telethon import TelegramClient, events
+from telethon.errors import FloodWaitError
+from telethon.tl.types import DocumentAttributeFilename
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib.pagesizes import A4
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
-from langdetect import detect, LangDetectException
 from dotenv import load_dotenv
 
 # Загрузка переменных окружения из .env файла
@@ -33,6 +33,7 @@ ASSEMBLYAI_API_KEY = os.getenv('ASSEMBLYAI_API_KEY')
 OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY')
 FFMPEG_DIR = os.getenv('FFMPEG_PATH', r"D:\Programming\ffmpeg-7.1.1-essentials_build\bin")
 FONT_PATH = os.getenv('FONT_PATH', r"C:\Users\zakco\PycharmProjects\WiseVoiceAI\DejaVuSans.ttf")
+CUSTOM_THUMBNAIL_PATH = os.getenv('CUSTOM_THUMBNAIL_PATH')
 
 # Проверка обязательных переменных
 if not all([TELEGRAM_API_ID, TELEGRAM_API_HASH, ASSEMBLYAI_API_KEY, OPENROUTER_API_KEY]):
@@ -99,8 +100,73 @@ except Exception as e:
     logger.error(f"Failed to register font: {e}")
     pdfmetrics.registerFont(TTFont("Helvetica", "Helvetica"))
 
-# Глобальный словарь для хранения времени последнего обновления прогресса
-LAST_UPDATE_TIMES = {}
+
+class ProgressManager:
+    """Менеджер для управления прогрессом"""
+
+    def __init__(self):
+        self.last_update_times = {}
+        self.last_progress_values = {}  # Храним последние значения прогресса
+        self.min_update_interval = 3.0  # Уменьшил интервал до 3 секунд
+        self.min_progress_change = 0.05  # Минимальное изменение прогресса для обновления
+
+    async def update_progress(self, progress, message, lang: str = 'ru'):
+        """Обновляет сообщение с прогресс-баром"""
+        try:
+            message_id = message.id
+
+            # Если progress - строка, обновляем сразу (для текстовых статусов)
+            if isinstance(progress, str):
+                await message.edit(progress)
+                self.last_update_times[message_id] = time.time()
+                return
+
+            # Проверяем интервал между обновлениями и изменение прогресса
+            current_time = time.time()
+            last_update = self.last_update_times.get(message_id, 0)
+            last_progress = self.last_progress_values.get(message_id, -1)
+
+            # Не обновляем слишком часто или если изменение слишком маленькое
+            if (current_time - last_update < self.min_update_interval and
+                progress < 0.99 and
+                abs(progress - last_progress) < self.min_progress_change):
+                return
+
+            # Создаем прогресс-бар
+            progress = max(0.0, min(1.0, float(progress)))
+            bar_length = 10
+            filled = int(progress * bar_length)
+            bar = '🟪' * filled + '⬜' * (bar_length - filled)
+            percent = int(progress * 100)
+
+            # Разные стили для разных этапов
+            if progress < 0.3:
+                emoji = "📥"
+                text = f"{emoji} Скачивание...\n{bar} {percent}%"
+            elif progress < 0.7:
+                emoji = "⚙️"
+                text = f"{emoji} Обработка...\n{bar} {percent}%"
+            else:
+                emoji = "📊"
+                text = f"{emoji} Форматирование...\n{bar} {percent}%"
+
+            try:
+                await message.edit(text)
+                self.last_update_times[message_id] = current_time
+                self.last_progress_values[message_id] = progress
+            except FloodWaitError as e:
+                logger.warning(f"FloodWait: ждем {e.seconds} секунд")
+                await asyncio.sleep(e.seconds)
+            except Exception as e:
+                if "not modified" not in str(e):
+                    logger.warning(f"Не удалось обновить прогресс: {str(e)}")
+        except Exception as e:
+            if "not modified" not in str(e):
+                logger.warning(f"Не удалось обновить прогресс: {str(e)}")
+
+
+# Создаем глобальный экземпляр менеджера
+progress_manager = ProgressManager()
 
 
 def get_string(key: str, lang: str = 'ru', **kwargs) -> str:
@@ -231,44 +297,22 @@ async def transcribe_with_assemblyai(audio_url: str) -> dict:
             await asyncio.sleep(3)
 
 
-async def update_progress(progress, message, lang: str):
-    """Обновляет сообщение с прогресс-баром"""
-    try:
-        if isinstance(progress, str):
-            await message.edit(progress)
-            LAST_UPDATE_TIMES[message.id] = time.time()
-            return
-
-        if not isinstance(progress, (int, float)):
-            return
-
-        current_time = time.time()
-        last_update = LAST_UPDATE_TIMES.get(message.id, 0)
-        if current_time - last_update < 3.5 and progress < 1.0:
-            return
-
-        progress = max(0.0, min(1.0, float(progress)))
-        bar_length = 10
-        filled = int(progress * bar_length)
-        bar = '🟪' * filled + '⬜' * (bar_length - filled)
-        percent = int(progress * 100)
-
-        text = f"⚙️ Обработка аудио...\n{bar} {percent}%"
-        await message.edit(text)
-        LAST_UPDATE_TIMES[message.id] = current_time
-
-    except Exception as e:
-        logger.warning(f"Не удалось обновить прогресс: {str(e)}")
-
-
 async def download_youtube_audio(url: str, progress_callback: callable = None) -> str:
     """Скачивает аудио с YouTube"""
     loop = asyncio.get_running_loop()
     progress_queue = asyncio.Queue()
+    last_percent = -1  # Для отслеживания последнего процента
 
     def progress_hook(data):
         if data['status'] == 'downloading' and progress_callback:
-            loop.call_soon_threadsafe(progress_queue.put_nowait, data)
+            try:
+                percent_str = data.get('_percent_str', '0%')
+                percent_value = float(percent_str.strip().replace('%', ''))
+                # Отправляем только если процент изменился значительно
+                if abs(percent_value - last_percent) >= 5:  # Обновляем каждые 5%
+                    loop.call_soon_threadsafe(progress_queue.put_nowait, percent_value)
+            except:
+                pass
 
     def sync_download():
         temp_dir = tempfile.gettempdir()
@@ -321,8 +365,17 @@ async def download_youtube_audio(url: str, progress_callback: callable = None) -
                 break
 
     download_task = loop.run_in_executor(None, sync_download)
-    await process_progress()
-    return await download_task
+    progress_task = asyncio.create_task(process_progress())
+
+    try:
+        result = await download_task
+        return result
+    finally:
+        progress_task.cancel()
+        try:
+            await progress_task
+        except asyncio.CancelledError:
+            pass
 
 
 def format_results_with_speakers(segments: list[dict]) -> str:
@@ -377,7 +430,7 @@ MM:SS - [Следующая основная тема]
 """
 
     data = {
-        "model": "openai/gpt-oss-20b:free",
+        "model": "z-ai/glm-4.5-air:free",
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.2
     }
@@ -431,19 +484,17 @@ async def process_audio_file(file_path: str, progress_callback=None) -> list[dic
     """Обрабатывает аудиофайл"""
     try:
         if progress_callback:
-            await progress_callback(0.01)
-            await progress_callback("Загружаю файл в Bot AI...")
+            await progress_callback(0.01, "Загружаю файл в AssemblyAI...")
 
         audio_url = await upload_to_assemblyai(file_path)
 
         if progress_callback:
-            await progress_callback(0.30)
-            await progress_callback("Запускаю транскрибацию...")
+            await progress_callback(0.30, "Запускаю транскрибацию...")
 
         result = await transcribe_with_assemblyai(audio_url)
 
         if progress_callback:
-            await progress_callback(0.90)
+            await progress_callback(0.90, "Формирую результаты...")
 
         segments = []
         if "utterances" in result and result["utterances"]:
@@ -456,12 +507,83 @@ async def process_audio_file(file_path: str, progress_callback=None) -> list[dic
             segments.append({"speaker": "?", "text": (result["text"] or "").strip()})
 
         if progress_callback:
-            await progress_callback(1.0)
+            await progress_callback(1.0, "Обработка завершена!")
 
         return segments
     except Exception as e:
         logger.error(f"Ошибка в process_audio_file: {e}")
         return []
+
+
+THUMBNAIL_CACHE = {}
+
+
+def create_custom_thumbnail(thumbnail_path: str = None):
+    """Создает кастомную иконку для PDF файла с высоким качеством"""
+    cache_key = thumbnail_path or "default"
+
+    if cache_key in THUMBNAIL_CACHE:
+        thumbnail_bytes = io.BytesIO(THUMBNAIL_CACHE[cache_key])
+        thumbnail_bytes.seek(0)
+        return thumbnail_bytes
+
+    try:
+        if thumbnail_path and os.path.exists(thumbnail_path):
+            with Image.open(thumbnail_path) as img:
+                if img.mode == 'RGBA':
+                    background = Image.new('RGB', img.size, (255, 255, 255))
+                    background.paste(img, mask=img.split()[3])
+                    img = background
+
+                target_size = (320, 320)
+                img.thumbnail(target_size, Image.LANCZOS)
+
+                square_img = Image.new('RGB', target_size, (255, 255, 255))
+                x_offset = (target_size[0] - img.width) // 2
+                y_offset = (target_size[1] - img.height) // 2
+                square_img.paste(img, (x_offset, y_offset))
+
+                thumbnail_bytes = io.BytesIO()
+                square_img.save(thumbnail_bytes, format='JPEG', quality=95, optimize=True)
+                thumbnail_bytes.seek(0)
+
+                THUMBNAIL_CACHE[cache_key] = thumbnail_bytes.getvalue()
+                thumbnail_bytes.seek(0)
+                return thumbnail_bytes
+        else:
+            target_size = (320, 320)
+            img = Image.new('RGB', target_size, color=(230, 50, 50))
+            draw = ImageDraw.Draw(img)
+
+            margin = 10
+            draw.rectangle([margin, margin, target_size[0] - margin, target_size[1] - margin],
+                           outline=(255, 255, 255), width=4)
+
+            try:
+                font = ImageFont.truetype("arial.ttf", 80)
+            except:
+                font = ImageFont.load_default()
+
+            text = "PDF"
+            bbox = draw.textbbox((0, 0), text, font=font)
+            text_width = bbox[2] - bbox[0]
+            text_height = bbox[3] - bbox[1]
+            x = (target_size[0] - text_width) // 2
+            y = (target_size[1] - text_height) // 2
+
+            draw.text((x, y), text, fill=(255, 255, 255), font=font)
+
+            thumbnail_bytes = io.BytesIO()
+            img.save(thumbnail_bytes, format='JPEG', quality=95, optimize=True)
+            thumbnail_bytes.seek(0)
+
+            THUMBNAIL_CACHE[cache_key] = thumbnail_bytes.getvalue()
+            thumbnail_bytes.seek(0)
+            return thumbnail_bytes
+
+    except Exception as e:
+        logger.error(f"Ошибка создания thumbnail: {e}")
+        return None
 
 
 async def handle_message(event, client):
@@ -471,7 +593,6 @@ async def handle_message(event, client):
         message = event.message
         chat_id = message.chat_id
 
-        # Красивые эмодзи для статусов
         EMOJI = {
             'downloading': '📥',
             'processing': '⚙️',
@@ -483,37 +604,26 @@ async def handle_message(event, client):
             'timecodes': '⏱️'
         }
 
+        # Отправляем начальное сообщение о прогрессе
+        progress_message = await client.send_message(
+            chat_id,
+            f"{EMOJI['processing']} Начинаю обработку...\n⬜⬜⬜⬜⬜⬜⬜⬜⬜⬜ 0%"
+        )
+
         if message.text and message.text.startswith(('http://', 'https://')):
             # Обработка YouTube ссылки
             url = message.text.strip()
-            progress_message = await client.send_message(chat_id,
-                                                         f"{EMOJI['downloading']} Скачивание видео...\n"
-                                                         f"⬜⬜⬜⬜⬜⬜⬜⬜⬜⬜ 0%"
-                                                         )
 
-            async def download_progress(data):
-                if data.get('status') == 'downloading':
-                    percent = data.get('_percent_str', '0%')
-                    try:
-                        percent_value = float(percent.strip().replace('%', ''))
-                        filled = min(10, int(percent_value / 10))
-                        bar = '🟪' * filled + '⬜' * (10 - filled)
-                        text = f"{EMOJI['downloading']} Скачивание видео...\n{bar} {percent}"
-                        await progress_message.edit(text)
-                    except:
-                        text = f"{EMOJI['downloading']} Скачивание видео...\n{percent}"
-                        await progress_message.edit(text)
+            async def download_progress(percent_value):
+                try:
+                    progress = percent_value / 100.0
+                    await progress_manager.update_progress(progress, progress_message, lang)
+                except Exception as e:
+                    logger.warning(f"Ошибка обработки прогресса загрузки: {e}")
 
             audio_path = await download_youtube_audio(url, progress_callback=download_progress)
-            await progress_message.edit(f"{EMOJI['processing']} Обработка аудио...\n⬜⬜⬜⬜⬜⬜⬜⬜⬜⬜ 0%")
 
         elif message.media:
-            # Обработка медиафайла
-            progress_message = await client.send_message(chat_id,
-                                                         f"{EMOJI['processing']} Обработка аудио...\n"
-                                                         f"⬜⬜⬜⬜⬜⬜⬜⬜⬜⬜ 0%"
-                                                         )
-
             # Скачиваем файл
             temp_path = tempfile.NamedTemporaryFile(delete=False, suffix=".temp").name
             await message.download_media(file=temp_path)
@@ -526,16 +636,25 @@ async def handle_message(event, client):
                 audio_path = temp_path
 
         else:
-            await client.send_message(chat_id, f"{EMOJI['error']} {get_string('invalid_link', lang)}")
+            await progress_message.edit(f"{EMOJI['error']} {get_string('invalid_link', lang)}")
             return
 
-        # Обработка аудио
-        results = await process_audio_file(
-            audio_path,
-            progress_callback=lambda p: update_progress(p, progress_message, lang))
+        # Обработка аудио с обновлением прогресса
+        async def update_audio_progress(progress, status_text=None):
+            if isinstance(progress, (int, float)):
+                await progress_manager.update_progress(progress, progress_message, lang)
+            elif status_text:
+                await progress_message.edit(f"{EMOJI['processing']} {status_text}")
 
-        if not results:
+        results = await process_audio_file(audio_path, progress_callback=update_audio_progress)
+
+        if not results or not any(seg.get('text') for seg in results):
             await progress_message.edit(f"{EMOJI['error']} {get_string('no_speech', lang)}")
+            # Удаляем временный файл
+            try:
+                os.remove(audio_path)
+            except:
+                pass
             return
 
         # Создаем PDF файлы
@@ -543,36 +662,59 @@ async def handle_message(event, client):
         text_plain = format_results_plain(results)
         timecodes_text = generate_summary_timecodes(results)
 
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as pdf1, \
-                tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as pdf2, \
-                tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as pdf3:
+        # Создаем временные файлы для PDF
+        pdf_files = []
+        try:
+            for i, (content, filename) in enumerate([
+                (text_with_speakers, "👥 Транскрипция со спикерами.pdf"),
+                (text_plain, "📝 Транскрипция без спикеров.pdf"),
+                (timecodes_text, "⏱️ Транскрипт с тайм-кодами.pdf")
+            ]):
+                if content.strip():
+                    temp_pdf = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+                    temp_pdf.close()
+                    save_text_to_pdf(content, temp_pdf.name)
+                    pdf_files.append((temp_pdf.name, filename))
 
-            save_text_to_pdf(text_with_speakers, pdf1.name)
-            save_text_to_pdf(text_plain, pdf2.name)
-            save_text_to_pdf(timecodes_text, pdf3.name)
+            # Создаем thumbnail
+            thumbnail_bytes = create_custom_thumbnail(CUSTOM_THUMBNAIL_PATH)
 
+            # Отправляем PDF файлы
+            for pdf_path, filename in pdf_files:
+                try:
+                    await client.send_file(
+                        chat_id,
+                        pdf_path,
+                        caption=filename.replace(".pdf", ""),
+                        attributes=[DocumentAttributeFilename(filename)],
+                        thumb=thumbnail_bytes if thumbnail_bytes else None,
+                        force_document=True
+                    )
+                    if thumbnail_bytes:
+                        thumbnail_bytes.seek(0)
+                except Exception as e:
+                    logger.error(f"Ошибка отправки файла {pdf_path}: {e}")
+                    # Пробуем отправить без thumbnail
+                    await client.send_file(
+                        chat_id,
+                        pdf_path,
+                        caption=filename.replace(".pdf", ""),
+                        attributes=[DocumentAttributeFilename(filename)],
+                        force_document=True
+                    )
 
-            # Русские названия файлов
-            filenames = {
-                pdf1.name: "👥 Транскрипция со спикерами.pdf",
-                pdf2.name: "📝 Транскрипция без спикеров.pdf",
-                pdf3.name: "⏱️ Транскрипт с тайм-кодами.pdf"
-            }
-
-            # Отправляем файлы по одному
-            for pdf_path in [pdf1.name, pdf2.name, pdf3.name]:
-                await client.send_file(
-                    chat_id,
-                    pdf_path,
-                    attributes=[DocumentAttributeFilename(filenames[pdf_path])]
-                )
-
-        # Удаляем временные файлы
-        for path in [audio_path, pdf1.name, pdf2.name, pdf3.name]:
+        finally:
+            # Удаляем временные файлы
             try:
-                os.remove(path)
+                os.remove(audio_path)
             except:
                 pass
+
+            for pdf_path, _ in pdf_files:
+                try:
+                    os.remove(pdf_path)
+                except:
+                    pass
 
         await progress_message.edit(
             f"{EMOJI['success']} Обработка завершена!\n"
@@ -580,12 +722,12 @@ async def handle_message(event, client):
         )
 
     except Exception as e:
-        error_text = f"{EMOJI['error']} Произошла ошибка:\n{str(e)}"
-        await client.send_message(chat_id, error_text)
         logger.exception("Ошибка обработки сообщения")
-
-
-
+        error_text = f"{EMOJI['error']} Произошла ошибка:\n{str(e)}"
+        try:
+            await progress_message.edit(error_text)
+        except:
+            await client.send_message(chat_id, error_text)
 
 
 async def main():
@@ -596,9 +738,8 @@ async def main():
         TELEGRAM_API_HASH
     )
 
-    # Правильная обработка аутентификации
     await client.start(
-        phone=lambda: "+79254499550",  # Ваш номер телефона
+        phone=lambda: "+79254499550",
         code_callback=lambda: input("Please enter the code you received: "),
         password=lambda: getpass("Two-factor password: ") if input("Is 2FA enabled? (y/n): ").lower() == 'y' else None
     )
@@ -606,7 +747,6 @@ async def main():
     print("Запуск клиента...")
     print("Userbot успешно запущен!")
 
-    # Единый обработчик для всех типов сообщений
     @client.on(events.NewMessage())
     async def universal_handler(event):
         message = event.message
@@ -621,7 +761,6 @@ async def main():
 
     @client.on(events.NewMessage(pattern='/start'))
     async def start_handler(event):
-        lang = 'ru'
         welcome_text = (
             "🎙️ *Добро пожаловать в Transcribe To!*\n\n"
             "Я помогу вам преобразовать аудио и видео в текст:\n\n"
