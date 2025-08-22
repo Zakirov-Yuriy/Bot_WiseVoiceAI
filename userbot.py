@@ -13,7 +13,7 @@ import json
 import requests
 from telethon import TelegramClient, events, Button
 from telethon.errors import FloodWaitError, RPCError
-from telethon.tl.types import DocumentAttributeAudio, DocumentAttributeVideo
+from telethon.tl.types import DocumentAttributeAudio, DocumentAttributeVideo, DocumentAttributeFilename
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib.pagesizes import A4
@@ -253,7 +253,7 @@ async def update_progress(progress, message, lang: str):
         bar = '🟪' * filled + '⬜' * (bar_length - filled)
         percent = int(progress * 100)
 
-        text = f"⚙️ *Обработка аудио...*\n{bar} {percent}%"
+        text = f"⚙️ Обработка аудио...\n{bar} {percent}%"
         await message.edit(text)
         LAST_UPDATE_TIMES[message.id] = current_time
 
@@ -551,18 +551,21 @@ async def handle_message(event, client):
             save_text_to_pdf(text_plain, pdf2.name)
             save_text_to_pdf(timecodes_text, pdf3.name)
 
-            # Отправляем файлы с красивыми подписями
-            await client.send_file(chat_id, pdf1.name,
-                                   caption=f"{EMOJI['speakers']} Транскрипция с распознаванием спикеров\n"
-                                           f"Разделение по говорящим с указанием спикеров")
 
-            await client.send_file(chat_id, pdf2.name,
-                                   caption=f"{EMOJI['text']} Транскрипция (текст без спикеров)\n"
-                                           f"Полный текст без разделения по спикерам")
+            # Русские названия файлов
+            filenames = {
+                pdf1.name: "👥 Транскрипция со спикерами.pdf",
+                pdf2.name: "📝 Транскрипция без спикеров.pdf",
+                pdf3.name: "⏱️ Транскрипт с тайм-кодами.pdf"
+            }
 
-            await client.send_file(chat_id, pdf3.name,
-                                   caption=f"{EMOJI['timecodes']} Транскрипт с тайм-кодами\n"
-                                           f"Структурированное оглавление с временными метками")
+            # Отправляем файлы по одному
+            for pdf_path in [pdf1.name, pdf2.name, pdf3.name]:
+                await client.send_file(
+                    chat_id,
+                    pdf_path,
+                    attributes=[DocumentAttributeFilename(filenames[pdf_path])]
+                )
 
         # Удаляем временные файлы
         for path in [audio_path, pdf1.name, pdf2.name, pdf3.name]:
@@ -571,15 +574,18 @@ async def handle_message(event, client):
             except:
                 pass
 
-        await client.send_message(chat_id,
-                                  f"{EMOJI['success']} Обработка завершена!\n"
-                                  f"Все файлы успешно сгенерированы и отправлены"
-                                  )
+        await progress_message.edit(
+            f"{EMOJI['success']} Обработка завершена!\n"
+            f"Все файлы успешно сгенерированы и отправлены"
+        )
 
     except Exception as e:
         error_text = f"{EMOJI['error']} Произошла ошибка:\n{str(e)}"
         await client.send_message(chat_id, error_text)
         logger.exception("Ошибка обработки сообщения")
+
+
+
 
 
 async def main():
