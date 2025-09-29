@@ -2,7 +2,7 @@ import sqlite3
 import time
 import logging
 from asyncio import Lock
-from .config import SUBSCRIPTION_DURATION_DAYS
+from .config import SUBSCRIPTION_DURATION_DAYS, ADMIN_USER_IDS
 
 logger = logging.getLogger(__name__)
 db_lock = Lock()
@@ -25,6 +25,10 @@ async def init_db():
 
 
 async def check_user_trials(user_id: int) -> tuple[bool, bool]:
+    if user_id in ADMIN_USER_IDS:
+        logger.info(f"User {user_id} is an admin, granting full access.")
+        return True, True
+
     async with db_lock:
         conn = sqlite3.connect('users.db')
         cursor = conn.cursor()
