@@ -56,6 +56,7 @@
 import os
 from dotenv import load_dotenv
 from pathlib import Path
+import shutil 
 
 # =============================
 #      Загрузка окружения
@@ -73,6 +74,26 @@ IMAGES_DIR = BASE_DIR / "images"
 # Относительные пути к ресурсам (если файла нет — обработай в коде по месту использования)
 FONT_PATH = os.getenv("FONT_PATH", str(FONTS_DIR / "DejaVuSans-ExtraLight.ttf"))
 CUSTOM_THUMBNAIL_PATH = os.getenv("CUSTOM_THUMBNAIL_PATH", str(IMAGES_DIR / "to.png"))
+
+# ffmpeg/ffprobe (кроссплатформенно)
+try:
+    from imageio_ffmpeg import get_ffmpeg_exe, get_ffprobe_exe
+    FFMPEG_BIN = get_ffmpeg_exe()
+    try:
+        FFPROBE_BIN = get_ffprobe_exe()
+    except Exception:
+        FFPROBE_BIN = shutil.which("ffprobe") or "ffprobe"
+except Exception:
+    FFMPEG_BIN = shutil.which("ffmpeg") or "ffmpeg"
+    FFPROBE_BIN = shutil.which("ffprobe") or "ffprobe"
+
+# чтобы yt-dlp/pydub/moviepy находили ffmpeg
+os.environ["PATH"] = os.pathsep.join([
+    os.path.dirname(FFMPEG_BIN) if os.path.dirname(FFMPEG_BIN) else "",
+    os.environ.get("PATH","")
+])
+os.environ["FFMPEG_BINARY"] = FFMPEG_BIN
+os.environ["FFPROBE_BINARY"] = FFPROBE_BIN
 
 # ffmpeg: в Railway путь не задаём, используем imageio-ffmpeg или системный ffmpeg
 FFMPEG_DIR = os.getenv("FFMPEG_PATH", "")

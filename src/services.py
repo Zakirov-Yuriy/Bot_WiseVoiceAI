@@ -17,10 +17,11 @@ from reportlab.lib.styles import getSampleStyleSheet
 from PIL import Image, ImageDraw, ImageFont
 
 from .config import (
-    ASSEMBLYAI_BASE_URL, HEADERS, API_TIMEOUT, FFMPEG_DIR,
+    ASSEMBLYAI_BASE_URL, HEADERS, API_TIMEOUT, FFMPEG_BIN, FFPROBE_BIN,
     SEGMENT_DURATION, OPENROUTER_API_KEY, FONT_PATH,
     YOOMONEY_WALLET, SUBSCRIPTION_AMOUNT
 )
+
 
 logger = logging.getLogger(__name__)
 
@@ -69,8 +70,9 @@ async def create_yoomoney_payment(user_id: int, amount: int, description: str) -
 try:
     pdfmetrics.registerFont(TTFont("DejaVu", FONT_PATH))
 except Exception as e:
-    logger.error(f"Failed to register font: {e}")
-    pdfmetrics.registerFont(TTFont("Helvetica", "Helvetica"))
+    logger.error(f"Failed to register DejaVu: {e}")
+    # ничего не регистрируем: Helvetica встроенная
+
 
 # ---------- Сохранение в разные форматы ----------
 
@@ -129,15 +131,9 @@ class AudioProcessor:
     def split_audio(input_path: str, segment_time: int = SEGMENT_DURATION) -> list[str]:
         output_dir = tempfile.mkdtemp(prefix="fragments_")
         output_pattern = os.path.join(output_dir, "fragment_%03d.mp3")
-        ffmpeg_path = os.path.join(FFMPEG_DIR, "ffmpeg.exe")
-        command = [
-            ffmpeg_path,
-            "-i", input_path,
-            "-f", "segment",
-            "-segment_time", str(segment_time),
-            "-c", "copy",
-            output_pattern
-        ]
+        ffmpeg_path = FFMPEG_BIN
+        command = [ffmpeg_path, "-i", input_path, "-f", "segment", "-segment_time", str(segment_time), "-c", "copy", output_pattern]
+
         try:
             subprocess.run(command, check=True, capture_output=True, text=True)
             return sorted([
@@ -242,7 +238,8 @@ async def download_youtube_audio(url: str, progress_callback: callable = None) -
         ydl_opts = {
             "format": "bestaudio/best",
             "outtmpl": outtmpl,
-            "ffmpeg_location": FFMPEG_DIR,
+            "ffmpeg_location": os.path.dirname(FFMPEG_BIN) or None,
+
             "progress_hooks": [progress_hook],
             "postprocessors": [{
                 "key": "FFmpegExtractAudio",
@@ -354,15 +351,9 @@ MM:SS - [Следующая основная тема]
 
 async def convert_to_mp3(input_path: str) -> str:
     output_path = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3").name
-    ffmpeg_path = os.path.join(FFMPEG_DIR, "ffmpeg.exe")
-    command = [
-        ffmpeg_path,
-        "-i", input_path,
-        "-acodec", "libmp3lame",
-        "-q:a", "2",
-        "-y",
-        output_path
-    ]
+    ffmpeg_path = FFMPEG_BIN
+    command = [ffmpeg_path, "-i", input_path, "-acodec", "libmp3lame", "-q:a", "2", "-y", output_path]
+
     try:
         process = await asyncio.create_subprocess_exec(
             *command,
