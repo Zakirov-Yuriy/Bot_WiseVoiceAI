@@ -27,6 +27,8 @@ if not all([TELEGRAM_BOT_TOKEN, ASSEMBLYAI_API_KEY, OPENROUTER_API_KEY, YOOMONEY
 # =============================
 #            Константы
 # =============================
+ADMIN_USER_IDS = [5628988881]  # ID пользователей с полным доступом
+
 ASSEMBLYAI_BASE_URL = "https://api.assemblyai.com/v2"
 HEADERS = {"authorization": ASSEMBLYAI_API_KEY}
 SEGMENT_DURATION = 60
