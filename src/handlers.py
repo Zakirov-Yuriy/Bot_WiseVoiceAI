@@ -75,7 +75,7 @@ async def referral_cmd(message: types.Message):
     await message.answer("Скоро здесь будет реферальная программа 😉")
 
 async def support_cmd(message: types.Message):
-    await message.answer("Напишите нам: support@example.com или @your_support")
+    await message.answer("Напишите нам: @Zak_Yuri")
 
 async def callback_handler(callback: types.CallbackQuery, bot: Bot):
     user_id = callback.from_user.id

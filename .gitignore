@@ -24,7 +24,6 @@ cookies.txt
 
 # Картинки, медиафайлы
 static/media/
-images/
 
 # Настройки редакторов
 .vscode/
@@ -35,4 +34,3 @@ images/
 *.tmp
 .DS_Store
 Thumbs.db
-
