@@ -3,8 +3,9 @@ import logging
 from aiogram import types
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-from .localization import get_string
-from .config import SUPPORTED_FORMATS, DEFAULT_FORMAT
+from . import database as db
+from . import services
+from .config import SUPPORTED_FORMATS, DEFAULT_FORMAT, BASE_DIR # BASE_DIR might be needed for referral link generation if not hardcoded
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +82,7 @@ def ensure_user_settings(user_id: int):
 def create_menu_keyboard():
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="💳 Оформить подписка", callback_data="subscribe")],
+        [InlineKeyboardButton(text="🌟 Реферальная программа", callback_data="send_referral_invitation")], # Добавлена кнопка реферальной программы
         [InlineKeyboardButton(text=get_string('settings', 'ru'), callback_data="settings")]
     ])
     logger.info("Создано меню с кнопками")
@@ -137,3 +139,11 @@ def create_settings_keyboard(user_id: int):
         [InlineKeyboardButton(text=get_string('back', 'ru'), callback_data="settings_back")]
     ])
     return keyboard
+
+# Предполагаемая функция для создания клавиатуры реферальной программы (если она нужна отдельно)
+# def create_referral_keyboard(referral_link: str):
+#     keyboard = InlineKeyboardMarkup(inline_keyboard=[
+#         [InlineKeyboardButton(text="🔗 Поделиться ссылкой", url=referral_link)],
+#         [InlineKeyboardButton(text="⬆️ Назад в меню", callback_data="settings_back")]
+#     ])
+#     return keyboard
