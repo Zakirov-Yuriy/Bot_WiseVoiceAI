@@ -38,8 +38,9 @@ async def start_handler(message: types.Message, bot: Bot):
                         referrer_id = int(param.split('_')[1])
                         await db.update_user_referrer(user_id, referrer_id)
                         logger.info(f"Пользователь {user_id} пришел по реферальной ссылке от {referrer_id}")
-                        # Можно также сгенерировать реферальный код для нового пользователя здесь, если он еще не создан
-                        if not await db.get_user_data(user_id) or not await db.get_user_data(user_id).get("referral_code"):
+                        # Генерируем реферальный код для нового пользователя, если он еще не создан
+                        user_data = await db.get_user_data(user_id)
+                        if not user_data or not user_data.get("referral_code"):
                             await db.generate_and_set_referral_code(user_id)
                         break
                     except (ValueError, IndexError) as e:
@@ -79,6 +80,20 @@ async def subscription_handler(message: types.Message):
             parse_mode='Markdown'
         )
         logger.info(f"Ссылка на оплату отправлена для user_id {user_id}: {payment_label}")
+        
+        # --- Логика реферальной программы при покупке подписки ---
+        user_data = await db.get_user_data(user_id)
+        if user_data and user_data.get("referrer_id"):
+            referrer_id = user_data["referrer_id"]
+            # Начисляем рефереру неделю бесплатного пользования
+            await db.add_free_weeks_to_referrer(referrer_id, weeks_to_add=1)
+            logger.info(f"Рефереру {referrer_id} добавлена 1 неделя подписки за приглашение пользователя {user_id}")
+            # Опционально: уведомить реферера о начислении бонуса
+            # try:
+            #     await bot.send_message(referrer_id, f"Пользователь {user_id} оформил подписку! Вам начислена 1 неделя бесплатного пользования.")
+            # except Exception as e:
+            #     logger.warning(f"Не удалось уведомить реферера {referrer_id}: {e}")
+
     else:
         await message.answer(
             "❌ Не удалось создать ссылку на оплату. Пожалуйста, попробуйте позже.",
@@ -111,12 +126,9 @@ async def referral_cmd(message: types.Message):
             return
 
     # Формируем реферальную ссылку
-    # Предполагаем, что BASE_DIR в config.py указывает на корень проекта,
-    # и бот будет доступен по имени бота из @Transcribe_to_bot
-    # Если имя бота другое, нужно будет его указать или получить динамически
     bot_username = "@Transcribe_to_bot" # Замените на реальное имя вашего бота
-    referral_link = f"https://t.me/{bot_username}?start=ref_{user_id}" # Используем user_id как реферер для простоты
-
+    referral_link = f"https://t.me/{bot_username}?start=ref_{user_id}"
+    
     # Пример текста для реферального сообщения
     referral_message_template = (
         "✨ Вы приглашены в Transcribe To — бота для удобного и точного преобразования аудио и видео в текст!\n\n"
@@ -221,21 +233,29 @@ async def callback_handler(callback: types.CallbackQuery, bot: Bot):
 
     # Обработка callback для реферальной программы (например, кнопка "Отправить приглашение")
     elif data == 'send_referral_invitation':
-        referral_link = await db.get_user_data(user_id).get("referral_link") # Предполагаем, что ссылка хранится в user_data
-        if not referral_link:
-            referral_code = await db.get_user_data(user_id).get("referral_code")
+        user_data = await db.get_user_data(user_id)
+        if not user_data:
+            await callback.message.answer("❌ Произошла ошибка при получении данных пользователя.")
+            await callback.answer()
+            return
+
+        referral_code = user_data.get("referral_code")
+        if not referral_code:
+            referral_code = await db.generate_and_set_referral_code(user_id)
             if not referral_code:
-                referral_code = await db.generate_and_set_referral_code(user_id)
-            
-            bot_username = "@Transcribe_to_bot" # Замените на реальное имя вашего бота
-            referral_link = f"https://t.me/{bot_username}?start=ref_{user_id}"
-            # Здесь нужно сохранить сгенерированную ссылку в БД, если она еще не сохранена
-            # await db.update_user_referral_link(user_id, referral_link) # Пример функции, которую нужно добавить в db.py
+                await callback.message.answer("❌ Не удалось сгенерировать реферальный код.")
+                await callback.answer()
+                return
+        
+        bot_username = "@Transcribe_to_bot" # Замените на реальное имя вашего бота
+        referral_link = f"https://t.me/{bot_username}?start=ref_{user_id}"
+        
+        # Сохраняем ссылку, если она была сгенерирована только что
+        # Предполагаем, что в db.py есть функция update_user_referral_link(user_id, referral_link)
+        # Если нет, то нужно ее добавить. Пока просто используем сгенерированную ссылку.
+        # await db.update_user_referral_link(user_id, referral_link) 
 
         if referral_link:
-            # Отправляем сообщение с приглашением пользователю, который нажал кнопку
-            # Это может быть немного сложно, так как callback приходит от сообщения, а отправлять нужно как бы от имени пользователя
-            # Возможно, лучше просто показать ссылку и текст приглашения в ответе на callback
             await callback.message.answer(
                 f"✨ Вот ваше реферальное приглашение:\n\n"
                 f"🎁 Забирайте 2 бесплатные попытки прямо сейчас 👇\n\n"
