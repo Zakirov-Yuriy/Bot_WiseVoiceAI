@@ -34,7 +34,6 @@ async def start_handler(message: types.Message):
         "• Файл должен быть *доступен по ссылке для всех*.\n"
         "• Размер не больше *5 ГБ*.\n\n"
         "После этого просто пришлите мне ссылку, и я все сделаю за вас 🙌"
-
     )
     await message.answer(welcome_text, reply_markup=ui.create_menu_keyboard(), parse_mode='Markdown')
     logger.info(f"Команда /start выполнена для user_id {message.from_user.id}")
