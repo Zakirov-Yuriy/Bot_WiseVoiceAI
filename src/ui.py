@@ -6,6 +6,7 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from . import database as db
 from . import services
 from .config import SUPPORTED_FORMATS, DEFAULT_FORMAT, BASE_DIR # BASE_DIR might be needed for referral link generation if not hardcoded
+from .localization import get_string
 
 logger = logging.getLogger(__name__)
 
