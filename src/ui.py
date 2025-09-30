@@ -83,7 +83,6 @@ def ensure_user_settings(user_id: int):
 def create_menu_keyboard():
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="💳 Оформить подписка", callback_data="subscribe")],
-        [InlineKeyboardButton(text="🌟 Реферальная программа", callback_data="send_referral_invitation")], # Добавлена кнопка реферальной программы
         [InlineKeyboardButton(text=get_string('settings', 'ru'), callback_data="settings")]
     ])
     logger.info("Создано меню с кнопками")

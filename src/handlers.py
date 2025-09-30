@@ -27,25 +27,6 @@ async def start_handler(message: types.Message, bot: Bot):
     text = message.text
     referrer_id = None
 
-    # Обработка реферальной ссылки
-    if text and '?' in text:
-        parts = text.split('?')
-        if len(parts) > 1:
-            query_params = parts[1].split('&')
-            for param in query_params:
-                if param.startswith('start=ref_'):
-                    try:
-                        referrer_id = int(param.split('_')[1])
-                        await db.update_user_referrer(user_id, referrer_id)
-                        logger.info(f"Пользователь {user_id} пришел по реферальной ссылке от {referrer_id}")
-                        # Генерируем реферальный код для нового пользователя, если он еще не создан
-                        user_data = await db.get_user_data(user_id)
-                        if not user_data or not user_data.get("referral_code"):
-                            await db.generate_and_set_referral_code(user_id)
-                        break
-                    except (ValueError, IndexError) as e:
-                        logger.warning(f"Не удалось обработать реферальную ссылку: {param}. Ошибка: {e}")
-
     welcome_text = (
         "🎉 *Привет!*\n\n"
         "У вас есть *2 бесплатные попытки* попробовать сервис.\n\n"
@@ -80,19 +61,6 @@ async def subscription_handler(message: types.Message):
             parse_mode='Markdown'
         )
         logger.info(f"Ссылка на оплату отправлена для user_id {user_id}: {payment_label}")
-        
-        # --- Логика реферальной программы при покупке подписки ---
-        user_data = await db.get_user_data(user_id)
-        if user_data and user_data.get("referrer_id"):
-            referrer_id = user_data["referrer_id"]
-            # Начисляем рефереру неделю бесплатного пользования
-            await db.add_free_weeks_to_referrer(referrer_id, weeks_to_add=1)
-            logger.info(f"Рефереру {referrer_id} добавлена 1 неделя подписки за приглашение пользователя {user_id}")
-            # Опционально: уведомить реферера о начислении бонуса
-            # try:
-            #     await bot.send_message(referrer_id, f"Пользователь {user_id} оформил подписку! Вам начислена 1 неделя бесплатного пользования.")
-            # except Exception as e:
-            #     logger.warning(f"Не удалось уведомить реферера {referrer_id}: {e}")
 
     else:
         await message.answer(
@@ -109,43 +77,6 @@ async def settings_cmd(message: types.Message):
         get_string('settings_choose', 'ru'),
         reply_markup=ui.create_settings_keyboard(message.from_user.id)
     )
-
-async def referral_cmd(message: types.Message):
-    user_id = message.from_user.id
-    user_data = await db.get_user_data(user_id)
-
-    if not user_data:
-        await message.answer("❌ Произошла ошибка при получении данных пользователя.")
-        return
-
-    referral_code = user_data.get("referral_code")
-    if not referral_code:
-        referral_code = await db.generate_and_set_referral_code(user_id)
-        if not referral_code:
-            await message.answer("❌ Не удалось сгенерировать реферальный код.")
-            return
-
-    # Формируем реферальную ссылку
-    bot_username = "@Transcribe_to_bot" # Замените на реальное имя вашего бота
-    referral_link = f"https://t.me/{bot_username}?start=ref_{user_id}"
-    
-    # Пример текста для реферального сообщения
-    referral_message_template = (
-        "✨ Вы приглашены в Transcribe To — бота для удобного и точного преобразования аудио и видео в текст!\n\n"
-        "🎁 Забирайте 2 бесплатные попытки прямо сейчас 👇\n\n"
-        f"Telegram: {bot_username}\n\n"
-        "Просто отправьте аудио или видео — и получите готовый текст с тайм-кодами и поддержкой разных спикеров 🙌\n\n"
-        "--- Ваш реферальный код: {referral_code} ---\n"
-        "--- Ваша реферальная ссылка: {referral_link} ---"
-    )
-    
-    await message.answer(
-        referral_message_template.format(referral_code=referral_code, referral_link=referral_link),
-        reply_markup=ui.create_referral_keyboard(referral_link), # Предполагаем, что такая кнопка есть в ui.py
-        parse_mode='Markdown'
-    )
-    logger.info(f"Реферальная информация отправлена для user_id {user_id}")
-
 
 async def support_cmd(message: types.Message):
     await message.answer("Напишите нам: @Zak_Yuri")
@@ -184,26 +115,6 @@ async def callback_handler(callback: types.CallbackQuery, bot: Bot):
         except Exception:
             await callback.message.answer(get_string('menu', 'ru'), reply_markup=ui.create_menu_keyboard())
 
-    elif data in ['select_speakers', 'select_plain', 'select_timecodes']:
-        if user_id not in ui.user_selections:
-            await callback.answer("Сначала отправьте аудиофайл или ссылку на YouTube.")
-            return
-        selections = ui.user_selections[user_id]
-        if data == 'select_speakers':
-            selections['speakers'] = not selections['speakers']
-        elif data == 'select_plain':
-            selections['plain'] = not selections['plain']
-        elif data == 'select_timecodes':
-            selections['timecodes'] = not selections['timecodes']
-        try:
-            await callback.message.edit_text(
-                get_string('select_transcription', 'ru'),
-                reply_markup=ui.create_transcription_selection_keyboard(user_id)
-            )
-        except TelegramBadRequest as e:
-            if "message is not modified" not in str(e):
-                logger.warning(f"Не удалось обновить сообщение: {str(e)}")
-
     elif data == 'confirm_selection':
         if user_id not in ui.user_selections:
             await callback.answer("Сначала отправьте аудиофайл или ссылку на YouTube.")
@@ -226,49 +137,10 @@ async def callback_handler(callback: types.CallbackQuery, bot: Bot):
             return
         try:
             await callback.message.delete()
-            await process_audio_file_for_user(bot, callback.message, user_id, selections, audio_path)
+            await process_audio_file_for_user(bot, message, user_id, selections, audio_path)
         except Exception as e:
             logger.error(f"Ошибка обработки после подтверждения для user_id {user_id}: {str(e)}")
-            await callback.message.edit_text(f"❌ {get_string('error', 'ru', error=str(e))}")
-
-    # Обработка callback для реферальной программы (например, кнопка "Отправить приглашение")
-    elif data == 'send_referral_invitation':
-        user_data = await db.get_user_data(user_id)
-        if not user_data:
-            await callback.message.answer("❌ Произошла ошибка при получении данных пользователя.")
-            await callback.answer()
-            return
-
-        referral_code = user_data.get("referral_code")
-        if not referral_code:
-            referral_code = await db.generate_and_set_referral_code(user_id)
-            if not referral_code:
-                await callback.message.answer("❌ Не удалось сгенерировать реферальный код.")
-                await callback.answer()
-                return
-        
-        bot_username = "@Transcribe_to_bot" # Замените на реальное имя вашего бота
-        referral_link = f"https://t.me/{bot_username}?start=ref_{user_id}"
-        
-        # Сохраняем ссылку, если она была сгенерирована только что
-        # Предполагаем, что в db.py есть функция update_user_referral_link(user_id, referral_link)
-        # Если нет, то нужно ее добавить. Пока просто используем сгенерированную ссылку.
-        # await db.update_user_referral_link(user_id, referral_link) 
-
-        if referral_link:
-            await callback.message.answer(
-                f"✨ Вот ваше реферальное приглашение:\n\n"
-                f"🎁 Забирайте 2 бесплатные попытки прямо сейчас 👇\n\n"
-                f"Telegram: @Transcribe_to_bot\n\n"
-                f"Просто отправьте аудио или видео — и получите готовый текст с тайм-кодами и поддержкой разных спикеров 🙌\n\n"
-                f"Ваша реферальная ссылка: {referral_link}",
-                reply_markup=ui.create_menu_keyboard(), # Или другая клавиатура, если нужно
-                parse_mode='Markdown'
-            )
-        else:
-            await callback.message.answer("❌ Не удалось сгенерировать реферальную ссылку.")
-        await callback.answer()
-
+            await message.edit_text(f"❌ {get_string('error', 'ru', error=str(e))}")
 
     try:
         await callback.answer()
@@ -407,7 +279,7 @@ async def process_audio_file_for_user(bot: Bot, message: types.Message, user_id:
             out_files.append((path, name))
 
         if selections['timecodes']:
-            timecodes_text = services.generate_summary_timecodes(results)
+            timecodes_text = services.format_results_plain(results)
             path, name = _save_with_format(timecodes_text, f"{EMOJI['timecodes']} Транскрипт с тайм-кодами")
             out_files.append((path, name))
 
@@ -462,7 +334,5 @@ def register_handlers(dp: Dispatcher, bot: Bot):
     dp.message.register(subscription_handler, Command("subscription", "subscribe"))
     dp.message.register(menu_handler, Command("menu"))
     dp.message.register(settings_cmd, Command("settings"))
-    dp.message.register(referral_cmd, Command("referral"))
-    dp.message.register(support_cmd, Command("support"))
     dp.callback_query.register(callback_handler)
     dp.message.register(universal_handler)
