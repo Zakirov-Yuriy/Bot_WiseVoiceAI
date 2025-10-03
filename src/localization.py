@@ -4,8 +4,8 @@
 locales = {
     'ru': {
         'welcome': "Привет! Отправьте мне аудиофайл или ссылку на YouTube для транскрибации.",
-        'downloading_video': "Скачивание видео... {bar} {percent}",
-        'processing_audio': "Обработка аудио... {bar} {percent}%",
+        'downloading_video': "Скачивание видео...\n{bar} {percent}%",
+        'processing_audio': "Обработка аудио...\n{bar} {percent}%",
         'uploading_file': "Загружаю файл для обработки...",
         'no_speech': "Не удалось распознать речь в аудио",
         'error': "Произошла ошибка: {error}",
@@ -39,8 +39,8 @@ locales = {
     },
     'en': {
         'welcome': "Hi! Send me an audio file or YouTube link for transcription.",
-        'downloading_video': "Downloading video... {bar} {percent}",
-        'processing_audio': "Processing audio... {bar} {percent}%",
+        'downloading_video': "Downloading video...\n{bar} {percent}%",
+        'processing_audio': "Processing audio...\n{bar} {percent}%",
         'uploading_file': "Uploading file for processing...",
         'no_speech': "No speech detected in the audio",
         'error': "An error occurred: {error}",
