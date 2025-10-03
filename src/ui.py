@@ -82,7 +82,7 @@ def ensure_user_settings(user_id: int):
 
 def create_menu_keyboard():
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        # [InlineKeyboardButton(text="💳 Оформить подписка", callback_data="subscribe")],
+        [InlineKeyboardButton(text="💳 Оформить подписка", callback_data="subscribe")],
         # [InlineKeyboardButton(text="🌟 Реферальная программа", callback_data="send_referral_invitation")], # Добавлена кнопка реферальной программы
         [InlineKeyboardButton(text=get_string('settings', 'ru'), callback_data="settings")]
     ])
@@ -141,10 +141,9 @@ def create_settings_keyboard(user_id: int):
     ])
     return keyboard
 
-# Предполагаемая функция для создания клавиатуры реферальной программы (если она нужна отдельно)
-# def create_referral_keyboard(referral_link: str):
-#     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-#         [InlineKeyboardButton(text="🔗 Поделиться ссылкой", url=referral_link)],
-#         [InlineKeyboardButton(text="⬆️ Назад в меню", callback_data="settings_back")]
-#     ])
-#     return keyboard
+def create_referral_keyboard(referral_link: str):
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔗 Поделиться ссылкой", url=referral_link)],
+        [InlineKeyboardButton(text="⬆️ Назад в меню", callback_data="settings_back")]
+    ])
+    return keyboard
