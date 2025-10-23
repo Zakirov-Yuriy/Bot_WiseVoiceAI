@@ -110,6 +110,8 @@ class AppSettings(BaseSettings):
     def parse_admin_user_ids(cls, v):
         if isinstance(v, str):
             return [int(x.strip()) for x in v.split(",") if x.strip()]
+        elif isinstance(v, int):
+            return [v]
         return v
 
     @validator("thumbnail_size", pre=True)

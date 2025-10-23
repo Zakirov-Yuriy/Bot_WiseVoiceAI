@@ -9,6 +9,7 @@ import httpx
 import uuid
 import json
 import requests
+import time
 from typing import List, Dict, Optional, Callable, Any, Tuple, TypedDict
 
 class Segment(TypedDict):
@@ -77,7 +78,7 @@ async def create_yoomoney_payment(user_id: int, amount: int, description: str) -
             logger.warning(f"Попытка {attempt + 1}/3 создания платежа YooMoney не удалась: {e}")
             if attempt == 2:
                 raise PaymentError(f"Не удалось создать платеж YooMoney: {e}") from e
-            await asyncio.sleep(2 ** attempt)
+            time.sleep(2 ** attempt)
     return None, None
 
 
@@ -199,7 +200,7 @@ async def upload_to_assemblyai(file_path: str, retries: int = 3) -> str:
             logger.warning(f"Попытка {attempt + 1}/{retries} загрузки файла не удалась: {str(e)}")
             if attempt == retries - 1:
                 raise TranscriptionError("Не удалось загрузить файл на сервер AssemblyAI") from e
-            await asyncio.sleep(2 ** attempt)
+            time.sleep(2 ** attempt)
 
 
 async def transcribe_with_assemblyai(audio_url: str, retries: int = 3) -> Dict[str, Any]:
@@ -245,7 +246,7 @@ async def transcribe_with_assemblyai(audio_url: str, retries: int = 3) -> Dict[s
             logger.warning(f"Попытка {attempt + 1}/{retries} транскрипции не удалась: {str(e)}")
             if attempt == retries - 1:
                 raise TranscriptionError("Не удалось выполнить транскрипцию") from e
-            await asyncio.sleep(2 ** attempt)
+            time.sleep(2 ** attempt)
 
 
 async def download_youtube_audio(url: str, progress_callback: Optional[Callable] = None) -> str:
@@ -366,18 +367,19 @@ MM:SS - [Следующая основная тема]
         "temperature": 0.2
     }
 
-    def _make_request():
-        response = requests.post(url, headers=headers, data=json.dumps(data), timeout=60)
-        response.raise_for_status()
-        return response.json()['choices'][0]['message']['content'].strip()
+    async def _make_request():
+        async with httpx.AsyncClient() as client:
+            response = await client.post(url, headers=headers, json=data, timeout=60)
+            response.raise_for_status()
+            return response.json()['choices'][0]['message']['content'].strip()
 
-    circuit_breaker = CircuitBreaker(failure_threshold=3, recovery_timeout=30, expected_exception=(requests.RequestException, KeyError))
+    circuit_breaker = CircuitBreaker(failure_threshold=3, recovery_timeout=30, expected_exception=(httpx.RequestError, httpx.HTTPStatusError, KeyError))
 
     for attempt in range(3):
         try:
-            result = circuit_breaker.call(_make_request)
+            result = await circuit_breaker.call(_make_request)
             return result
-        except (requests.RequestException, KeyError) as e:
+        except (httpx.RequestError, httpx.HTTPStatusError, KeyError) as e:
             logger.warning(f"Попытка {attempt + 1}/3 генерации тайм-кодов не удалась: {e}")
             if attempt == 2:
                 logger.info("Используем fallback для тайм-кодов")
