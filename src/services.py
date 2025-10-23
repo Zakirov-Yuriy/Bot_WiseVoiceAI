@@ -331,7 +331,7 @@ def format_results_plain(segments: List[Segment]) -> str:
     return "\n\n".join(seg["text"] for seg in segments)
 
 
-def generate_summary_timecodes(segments: List[Segment]) -> str:
+async def generate_summary_timecodes(segments: List[Segment]) -> str:
     url = f"{OPENROUTER_BASE_URL}/chat/completions"
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
@@ -382,7 +382,7 @@ MM:SS - [Следующая основная тема]
             if attempt == 2:
                 logger.info("Используем fallback для тайм-кодов")
                 break
-            asyncio.sleep(2 ** attempt)
+            await asyncio.sleep(2 ** attempt)
 
     # Fallback
     fallback_result = "Тайм-коды\n\n"

@@ -485,7 +485,7 @@ async def process_audio_file_for_user(bot: Bot, message: types.Message, user_id:
             out_files.append((path, name))
 
         if selections['timecodes']:
-            timecodes_text = services.generate_summary_timecodes(results)
+            timecodes_text = await services.generate_summary_timecodes(results)
             path, name = _save_with_format(timecodes_text, f"{EMOJI['timecodes']} Транскрипт с тайм-кодами")
             out_files.append((path, name))
 
