@@ -4,12 +4,22 @@ import logging
 import random
 import string
 from asyncio import Lock
+from typing import Dict, Optional, Tuple, List, TypedDict
+
+class UserData(TypedDict):
+    user_id: int
+    trials_used: int
+    is_paid: bool
+    subscription_expiry: int
+    referrer_id: Optional[int]
+    referral_code: Optional[str]
+    free_weeks: int
 from .config import SUBSCRIPTION_DURATION_DAYS, ADMIN_USER_IDS
 
 logger = logging.getLogger(__name__)
 db_lock = Lock()
 
-async def init_db():
+async def init_db() -> None:
     async with db_lock:
         conn = sqlite3.connect('users.db')
         cursor = conn.cursor()
@@ -58,7 +68,7 @@ async def check_user_trials(user_id: int) -> tuple[bool, bool]:
         return can_use, is_paid
 
 
-async def increment_trials(user_id: int):
+async def increment_trials(user_id: int) -> None:
     async with db_lock:
         conn = sqlite3.connect('users.db')
         cursor = conn.cursor()
@@ -68,7 +78,7 @@ async def increment_trials(user_id: int):
         logger.info(f"Попытки для user {user_id} обновлены")
 
 
-async def activate_subscription(user_id: int, weeks: int = SUBSCRIPTION_DURATION_DAYS):
+async def activate_subscription(user_id: int, weeks: int = SUBSCRIPTION_DURATION_DAYS) -> int:
     async with db_lock:
         conn = sqlite3.connect('users.db')
         cursor = conn.cursor()
@@ -91,7 +101,7 @@ async def activate_subscription(user_id: int, weeks: int = SUBSCRIPTION_DURATION
         logger.info(f"Подписка активирована/продлена для user_id {user_id} до {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(expiry_time))}")
         return expiry_time
 
-async def get_user_data(user_id: int):
+async def get_user_data(user_id: int) -> Optional[UserData]:
     async with db_lock:
         conn = sqlite3.connect('users.db')
         cursor = conn.cursor()
@@ -110,7 +120,7 @@ async def get_user_data(user_id: int):
             }
         return None
 
-async def update_user_referral_code(user_id: int, referral_code: str):
+async def update_user_referral_code(user_id: int, referral_code: str) -> None:
     async with db_lock:
         conn = sqlite3.connect('users.db')
         cursor = conn.cursor()
@@ -119,7 +129,7 @@ async def update_user_referral_code(user_id: int, referral_code: str):
         conn.close()
         logger.info(f"Реферальный код {referral_code} обновлен для user_id {user_id}")
 
-async def update_user_referrer(user_id: int, referrer_id: int):
+async def update_user_referrer(user_id: int, referrer_id: int) -> None:
     async with db_lock:
         conn = sqlite3.connect('users.db')
         cursor = conn.cursor()
@@ -128,7 +138,7 @@ async def update_user_referrer(user_id: int, referrer_id: int):
         conn.close()
         logger.info(f"Реферер {referrer_id} установлен для user_id {user_id}")
 
-async def add_free_weeks_to_referrer(referrer_id: int, weeks_to_add: int):
+async def add_free_weeks_to_referrer(referrer_id: int, weeks_to_add: int) -> None:
     async with db_lock:
         conn = sqlite3.connect('users.db')
         cursor = conn.cursor()
@@ -152,7 +162,7 @@ async def add_free_weeks_to_referrer(referrer_id: int, weeks_to_add: int):
             logger.info(f"Рефереру {referrer_id} добавлено {weeks_to_add} бесплатных недель. Новая подписка до {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(new_expiry_time))}")
         conn.close()
 
-async def consume_free_week(user_id: int):
+async def consume_free_week(user_id: int) -> bool:
     async with db_lock:
         conn = sqlite3.connect('users.db')
         cursor = conn.cursor()
@@ -167,7 +177,7 @@ async def consume_free_week(user_id: int):
         return False
     conn.close()
 
-async def generate_and_set_referral_code(user_id: int):
+async def generate_and_set_referral_code(user_id: int) -> Optional[str]:
     """Генерирует уникальный реферальный код для пользователя и сохраняет его в БД."""
     if await get_user_data(user_id) and await get_user_data(user_id).get("referral_code"):
         logger.info(f"У пользователя {user_id} уже есть реферальный код.")

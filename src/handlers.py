@@ -3,6 +3,7 @@ import os
 import tempfile
 import time
 import asyncio
+from typing import Dict, List, Optional, Any, Callable, Union, Tuple
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command, CommandStart
 from aiogram.types import FSInputFile, BufferedInputFile
@@ -11,6 +12,7 @@ from aiogram.exceptions import TelegramBadRequest
 from . import database as db
 from . import services
 from . import ui
+from .ui import UserSelections
 from .config import (
     YOOMONEY_WALLET, YOOMONEY_REDIRECT_URI, SUBSCRIPTION_AMOUNT,
     SUBSCRIPTION_DURATION_DAYS, PAID_USER_FILE_LIMIT, FREE_USER_FILE_LIMIT,
@@ -22,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 # --- Handler Functions ---
 
-async def start_handler(message: types.Message, bot: Bot):
+async def start_handler(message: types.Message, bot: Bot) -> None:
     user_id = message.from_user.id
     text = message.text
     referrer_id = None
@@ -58,10 +60,14 @@ async def start_handler(message: types.Message, bot: Bot):
         "• Размер не больше *5 ГБ*.\n\n"
         "После этого просто пришлите мне ссылку, и я все сделаю за вас 🙌"
     )
-    await message.answer(welcome_text, reply_markup=ui.create_menu_keyboard(), parse_mode='Markdown')
-    logger.info(f"Команда /start выполнена для user_id {user_id}")
+    await message.answer(
+    welcome_text,
+    parse_mode="Markdown",
+    disable_web_page_preview=True  # ✅ убирает предпросмотр ссылок (рекламу)
+)
 
-async def subscription_handler(message: types.Message):
+
+async def subscription_handler(message: types.Message) -> None:
     user_id = message.from_user.id
     description = f"Подписка на Transcribe To на {SUBSCRIPTION_DURATION_DAYS} дней"
     
@@ -100,17 +106,17 @@ async def subscription_handler(message: types.Message):
             reply_markup=ui.create_menu_keyboard()
         )
 
-async def menu_handler(message: types.Message):
+async def menu_handler(message: types.Message) -> None:
     await message.answer(get_string('menu', 'ru'), reply_markup=ui.create_menu_keyboard(), parse_mode='Markdown')
     logger.info(f"Меню отправлено для user_id {message.from_user.id}")
 
-async def settings_cmd(message: types.Message):
+async def settings_cmd(message: types.Message) -> None:
     await message.answer(
         get_string('settings_choose', 'ru'),
         reply_markup=ui.create_settings_keyboard(message.from_user.id)
     )
 
-async def referral_cmd(message: types.Message):
+async def referral_cmd(message: types.Message) -> None:
     user_id = message.from_user.id
     user_data = await db.get_user_data(user_id)
 
@@ -147,10 +153,10 @@ async def referral_cmd(message: types.Message):
     logger.info(f"Реферальная информация отправлена для user_id {user_id}")
 
 
-async def support_cmd(message: types.Message):
+async def support_cmd(message: types.Message) -> None:
     await message.answer("Напишите нам: @Zak_Yuri")
 
-async def callback_handler(callback: types.CallbackQuery, bot: Bot):
+async def callback_handler(callback: types.CallbackQuery, bot: Bot) -> None:
     user_id = callback.from_user.id
     data = callback.data
     logger.info(f"Callback от user_id {user_id}: {data}")
@@ -186,7 +192,7 @@ async def callback_handler(callback: types.CallbackQuery, bot: Bot):
 
     elif data in ['select_speakers', 'select_plain', 'select_timecodes']:
         if user_id not in ui.user_selections:
-            await callback.answer("Сначала отправьте аудиофайл или ссылку на YouTube.")
+            await callback.answer("Сначала отправьте аудиофайл, голосовое сообщение или ссылку на YouTube.")
             return
         selections = ui.user_selections[user_id]
         if data == 'select_speakers':
@@ -206,7 +212,7 @@ async def callback_handler(callback: types.CallbackQuery, bot: Bot):
 
     elif data == 'confirm_selection':
         if user_id not in ui.user_selections:
-            await callback.answer("Сначала отправьте аудиофайл или ссылку на YouTube.")
+            await callback.answer("Сначала отправьте аудиофайл, голосовое сообщение или ссылку на YouTube.")
             return
         selections = ui.user_selections[user_id]
         if not any([selections['speakers'], selections['plain'], selections['timecodes']]):
@@ -275,12 +281,12 @@ async def callback_handler(callback: types.CallbackQuery, bot: Bot):
     except TelegramBadRequest:
         pass
 
-async def universal_handler(message: types.Message, bot: Bot):
+async def universal_handler(message: types.Message, bot: Bot) -> None:
     user_id = message.from_user.id
     if message.text and message.text.startswith('/'):
         return
 
-    if not ((message.text and message.text.startswith(('http://', 'https://'))) or message.audio or message.document):
+    if not ((message.text and message.text.startswith(('http://', 'https://'))) or message.audio or message.document or message.voice):
         return
 
     can_use, is_paid = await db.check_user_trials(user_id)
@@ -289,11 +295,39 @@ async def universal_handler(message: types.Message, bot: Bot):
         return
 
     file_limit = PAID_USER_FILE_LIMIT if is_paid else FREE_USER_FILE_LIMIT
-    if message.audio or message.document:
-        file_size = (message.audio.file_size if message.audio else message.document.file_size)
+    if message.audio or message.document or message.voice:
+        file_size = (message.audio.file_size if message.audio else message.document.file_size if message.document else message.voice.file_size)
         if file_size > file_limit:
             await message.answer(f"❌ {get_string('file_too_large', 'ru', size=file_size, limit=file_limit)}", reply_markup=ui.create_menu_keyboard())
             return
+
+        # Проверка поддерживаемых форматов
+        supported_audio_formats = {'.mp3', '.m4a', '.flac', '.wav', '.ogg', '.opus'}
+        supported_video_formats = {'.mp4', '.avi', '.mov', '.mkv', '.webm', '.flv'}
+
+        if message.audio:
+            # Для аудио проверяем mime_type или file_name
+            file_name = getattr(message.audio, 'file_name', '') or ''
+            mime_type = getattr(message.audio, 'mime_type', '') or ''
+            file_ext = file_name.lower().split('.')[-1] if '.' in file_name else ''
+            if mime_type and 'audio' not in mime_type.lower():
+                await message.answer("❌ Поддерживаются только аудиофайлы. Пожалуйста, отправьте аудиофайл в формате MP3, M4A, FLAC, WAV, OGG или OPUS.", reply_markup=ui.create_menu_keyboard())
+                return
+        elif message.document:
+            file_name = getattr(message.document, 'file_name', '') or ''
+            mime_type = getattr(message.document, 'mime_type', '') or ''
+            file_ext = file_name.lower().split('.')[-1] if '.' in file_name else ''
+
+            # Проверяем расширение
+            if file_ext and file_ext not in supported_audio_formats and file_ext not in supported_video_formats:
+                await message.answer(f"❌ Файл в формате .{file_ext} не поддерживается. Поддерживаемые форматы: MP3, M4A, FLAC, WAV, OGG, OPUS (аудио) и MP4, AVI, MOV, MKV, WEBM, FLV (видео).", reply_markup=ui.create_menu_keyboard())
+                return
+        elif message.voice:
+            # Для голосовых сообщений проверяем mime_type
+            mime_type = getattr(message.voice, 'mime_type', '') or ''
+            if mime_type and 'audio' not in mime_type.lower():
+                await message.answer("❌ Поддерживаются только голосовые сообщения. Пожалуйста, запишите голосовое сообщение.", reply_markup=ui.create_menu_keyboard())
+                return
 
     audio_path = None
     try:
@@ -314,14 +348,35 @@ async def universal_handler(message: types.Message, bot: Bot):
             audio_path = await services.download_youtube_audio(url, progress_callback=download_progress)
             await temp_message.delete()
         else:
-            file = message.audio or message.document
+            file = message.audio or message.document or message.voice
             temp_path = tempfile.NamedTemporaryFile(delete=False, suffix=".temp").name
-            await bot.download(file, destination=temp_path)
-            audio_path = await services.convert_to_mp3(temp_path)
             try:
-                os.remove(temp_path)
-            except:
-                logger.warning(f"Не удалось удалить временный файл {temp_path}")
+                await bot.download(file, destination=temp_path)
+                audio_path = await services.convert_to_mp3(temp_path)
+                try:
+                    os.remove(temp_path)
+                except:
+                    logger.warning(f"Не удалось удалить временный файл {temp_path}")
+            except TelegramBadRequest as e:
+                if "file is too big" in str(e):
+                    await message.answer(
+                        '❌ Ваш файл превысил допустимый размер (20 МБ).\n'
+                        'Пожалуйста, загрузите его в один из облачных сервисов:\n'
+                        '• <a href="https://drive.google.com">Google Drive</a>\n'
+                        '• <a href="https://www.dropbox.com">Dropbox</a>\n'
+                        '• <a href="https://onedrive.live.com">OneDrive</a>\n'
+                        '• <a href="https://disk.yandex.ru">Яндекс.Диск</a>\n\n'
+                        'После этого пришлите мне ссылку.\n'
+                        'Обязательно проверьте, что ссылка имеет <b>общий доступ</b> (доступ по ссылке).\n'
+                        'После получения ссылки я сразу приступлю к работе.\n\n'
+                        'Спасибо!',
+                        parse_mode="HTML",
+                        disable_web_page_preview=True  # ✅ Отключает предпросмотр (убирает "рекламу")
+                    )
+
+                else:
+                    await message.answer(f"❌ {get_string('error', 'ru', error=str(e))}")
+                return
 
         ui.user_selections[user_id] = {
             'speakers': False,
@@ -336,6 +391,25 @@ async def universal_handler(message: types.Message, bot: Bot):
         )
         ui.user_selections[user_id]['message_id'] = selection_message.message_id
 
+    except TelegramBadRequest as e:
+        if "file is too big" in str(e):
+            await message.answer(
+                '❌ Ваш файл превысил допустимый размер (20 МБ).\n'
+                'Пожалуйста, загрузите его в один из облачных сервисов:\n'
+                '• <a href="https://www.dropbox.com">Dropbox</a>\n'
+                '• <a href="https://drive.google.com">Google Drive</a>\n'
+                '• <a href="https://onedrive.live.com">OneDrive</a>\n'
+                '• <a href="https://disk.yandex.ru">Яндекс.Диск</a>\n\n'
+                'После этого пришлите мне ссылку.\n'
+                'Обязательно проверьте, что ссылка имеет <b>общий доступ</b> (доступ по ссылке).\n'
+                'После получения ссылки я сразу приступлю к работе.\n\n'
+                'Спасибо!',
+                parse_mode="HTML",
+                disable_web_page_preview=True  # ✅ Отключает предпросмотр (убирает "рекламу")
+            )
+
+        else:
+            await message.answer(f"❌ {get_string('error', 'ru', error=str(e))}")
     except Exception as e:
         logger.error(f"Ошибка предварительной обработки для user_id {user_id}: {str(e)}")
         await message.answer(f"❌ {get_string('error', 'ru', error=str(e))}")
@@ -347,7 +421,7 @@ async def universal_handler(message: types.Message, bot: Bot):
         if user_id in ui.user_selections:
             del ui.user_selections[user_id]
 
-async def process_audio_file_for_user(bot: Bot, message: types.Message, user_id: int, selections: dict, audio_path: str):
+async def process_audio_file_for_user(bot: Bot, message: types.Message, user_id: int, selections: UserSelections, audio_path: str) -> None:
     lang = 'ru'
     chat_id = message.chat.id
     EMOJI = {

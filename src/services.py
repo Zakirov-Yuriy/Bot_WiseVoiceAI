@@ -9,6 +9,11 @@ import httpx
 import uuid
 import json
 import requests
+from typing import List, Dict, Optional, Callable, Any, Tuple, TypedDict
+
+class Segment(TypedDict):
+    speaker: str
+    text: str
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib.pagesizes import A4
@@ -29,7 +34,7 @@ logger = logging.getLogger(__name__)
 # =============================
 #     YooMoney Payment
 # =============================
-async def create_yoomoney_payment(user_id: int, amount: int, description: str) -> str:
+async def create_yoomoney_payment(user_id: int, amount: int, description: str) -> Tuple[Optional[str], Optional[str]]:
     """Создает ссылку на оплату YooMoney."""
     payment_label = f"sub_{user_id}_{uuid.uuid4()}"
     quickpay_url = "https://yoomoney.ru/quickpay/confirm.xml"
@@ -76,14 +81,14 @@ except Exception as e:
 
 # ---------- Сохранение в разные форматы ----------
 
-def _register_pdf_font_if_needed():
+def _register_pdf_font_if_needed() -> None:
     try:
         if 'DejaVu' not in pdfmetrics.getRegisteredFontNames():
             pdfmetrics.registerFont(TTFont("DejaVu", FONT_PATH))
     except Exception:
         pass
 
-def save_text_to_pdf(text: str, output_path: str):
+def save_text_to_pdf(text: str, output_path: str) -> None:
     _register_pdf_font_if_needed()
     doc = SimpleDocTemplate(output_path, pagesize=A4,
                             rightMargin=50, leftMargin=50,
@@ -101,17 +106,17 @@ def save_text_to_pdf(text: str, output_path: str):
     doc.build(elems)
 
 
-def save_text_to_txt(text: str, output_path: str):
+def save_text_to_txt(text: str, output_path: str) -> None:
     with open(output_path, 'w', encoding='utf-8') as f:
         f.write(text)
 
 
-def save_text_to_md(text: str, output_path: str):
+def save_text_to_md(text: str, output_path: str) -> None:
     with open(output_path, 'w', encoding='utf-8') as f:
         f.write(text)
 
 
-def save_text_to_docx(text: str, output_path: str):
+def save_text_to_docx(text: str, output_path: str) -> None:
     try:
         from docx import Document
         doc = Document()
@@ -146,7 +151,7 @@ class AudioProcessor:
             raise RuntimeError("Ошибка при разделении аудио") from e
 
     @staticmethod
-    def cleanup(files: list[str]):
+    def cleanup(files: List[str]) -> None:
         for path in files:
             try:
                 if os.path.isfile(path):
@@ -179,7 +184,7 @@ async def upload_to_assemblyai(file_path: str, retries: int = 3) -> str:
             await asyncio.sleep(2 ** attempt)
 
 
-async def transcribe_with_assemblyai(audio_url: str, retries: int = 3) -> dict:
+async def transcribe_with_assemblyai(audio_url: str, retries: int = 3) -> Dict[str, Any]:
     headers = {
         "authorization": HEADERS['authorization'],
         "content-type": "application/json"
@@ -218,7 +223,7 @@ async def transcribe_with_assemblyai(audio_url: str, retries: int = 3) -> dict:
             await asyncio.sleep(2 ** attempt)
 
 
-async def download_youtube_audio(url: str, progress_callback: callable = None) -> str:
+async def download_youtube_audio(url: str, progress_callback: Optional[Callable] = None) -> str:
     loop = asyncio.get_running_loop()
     progress_queue = asyncio.Queue()
 
@@ -293,15 +298,15 @@ async def download_youtube_audio(url: str, progress_callback: callable = None) -
             pass
 
 
-def format_results_with_speakers(segments: list[dict]) -> str:
+def format_results_with_speakers(segments: List[Segment]) -> str:
     return "\n\n".join(f"Спикер {seg['speaker']}:\n{seg['text']}" for seg in segments)
 
 
-def format_results_plain(segments: list[dict]) -> str:
+def format_results_plain(segments: List[Segment]) -> str:
     return "\n\n".join(seg["text"] for seg in segments)
 
 
-def generate_summary_timecodes(segments: list[dict]) -> str:
+def generate_summary_timecodes(segments: List[Segment]) -> str:
     url = "https://openrouter.ai/api/v1/chat/completions"
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
@@ -374,7 +379,7 @@ async def convert_to_mp3(input_path: str) -> str:
         raise RuntimeError(f"Ошибка конвертации: {str(e)}") from e
 
 
-async def process_audio_file(file_path: str, user_id: int, progress_callback=None) -> list[dict]:
+async def process_audio_file(file_path: str, user_id: int, progress_callback: Optional[Callable] = None) -> List[Segment]:
     try:
         logger.info(f"Обработка аудиофайла: {file_path}")
         if progress_callback:
@@ -405,7 +410,7 @@ async def process_audio_file(file_path: str, user_id: int, progress_callback=Non
 
 THUMBNAIL_CACHE = {}
 
-def create_custom_thumbnail(thumbnail_path: str = None):
+def create_custom_thumbnail(thumbnail_path: Optional[str] = None) -> Optional[io.BytesIO]:
     cache_key = thumbnail_path or "default"
     if cache_key in THUMBNAIL_CACHE:
         thumbnail_bytes = io.BytesIO(THUMBNAIL_CACHE[cache_key])

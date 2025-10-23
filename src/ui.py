@@ -1,5 +1,16 @@
 import time
 import logging
+from typing import Dict, Optional, TypedDict, Union
+
+class UserSelections(TypedDict):
+    speakers: bool
+    plain: bool
+    timecodes: bool
+    message_id: Optional[int]
+    file_path: Optional[str]
+
+class UserSettings(TypedDict):
+    format: str
 from aiogram import types
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
@@ -12,10 +23,10 @@ logger = logging.getLogger(__name__)
 
 # Хранение выборов пользователя
 # {user_id: {'speakers': bool, 'plain': bool, 'timecodes': bool, 'message_id': int, 'file_path': str}}
-user_selections = {}
+user_selections: Dict[int, UserSelections] = {}
 
 # Персональные настройки формата выдачи: {user_id: {"format": "pdf"}}
-user_settings = {}
+user_settings: Dict[int, UserSettings] = {}
 
 
 class ProgressManager:
@@ -27,7 +38,7 @@ class ProgressManager:
         self.min_update_interval = 3.0
         self.min_progress_change = 0.05
 
-    async def update_progress(self, progress, message, lang='ru'):
+    async def update_progress(self, progress: Union[float, str], message: types.Message, lang: str = 'ru') -> None:
         """Обновление прогресса отображаемого пользователю"""
         try:
             message_id = message.message_id
@@ -75,12 +86,12 @@ class ProgressManager:
 progress_manager = ProgressManager()
 
 
-def ensure_user_settings(user_id: int):
+def ensure_user_settings(user_id: int) -> None:
     if user_id not in user_settings:
         user_settings[user_id] = {"format": DEFAULT_FORMAT}
 
 
-def create_menu_keyboard():
+def create_menu_keyboard() -> InlineKeyboardMarkup:
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="💳 Оформить подписка", callback_data="subscribe")],
         # [InlineKeyboardButton(text="🌟 Реферальная программа", callback_data="send_referral_invitation")], # Добавлена кнопка реферальной программы
@@ -90,7 +101,7 @@ def create_menu_keyboard():
     return keyboard
 
 
-def create_transcription_selection_keyboard(user_id: int):
+def create_transcription_selection_keyboard(user_id: int) -> InlineKeyboardMarkup:
     selections = user_selections.get(user_id, {'speakers': False, 'plain': False, 'timecodes': False})
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [
@@ -122,7 +133,7 @@ def create_transcription_selection_keyboard(user_id: int):
     return keyboard
 
 
-def create_settings_keyboard(user_id: int):
+def create_settings_keyboard(user_id: int) -> InlineKeyboardMarkup:
     ensure_user_settings(user_id)
     fmt = user_settings[user_id].get("format", DEFAULT_FORMAT)
 
@@ -141,7 +152,7 @@ def create_settings_keyboard(user_id: int):
     ])
     return keyboard
 
-def create_referral_keyboard(referral_link: str):
+def create_referral_keyboard(referral_link: str) -> InlineKeyboardMarkup:
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔗 Поделиться ссылкой", url=referral_link)],
         [InlineKeyboardButton(text="⬆️ Назад в меню", callback_data="settings_back")]

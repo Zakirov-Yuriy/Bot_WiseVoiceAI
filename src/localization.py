@@ -1,7 +1,9 @@
 # =============================
 #           Локализация
 # =============================
-locales = {
+from typing import Dict
+
+locales: Dict[str, Dict[str, str]] = {
     'ru': {
         'welcome': "Привет! Отправьте мне аудиофайл или ссылку на YouTube для транскрибации.",
         'downloading_video': "Скачивание видео...\n{bar} {percent}%",

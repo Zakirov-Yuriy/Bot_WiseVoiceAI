@@ -33,7 +33,7 @@ COMMANDS = {
     ],
 }
 
-async def setup_commands(bot: Bot):
+async def setup_commands(bot: Bot) -> None:
     await bot.set_my_commands(COMMANDS["ru"])
     await bot.set_my_commands(COMMANDS["ru"], language_code="ru")
     await bot.set_my_commands(COMMANDS["en"], language_code="en")
