@@ -42,7 +42,7 @@ async def start_handler(message: types.Message, bot: Bot) -> None:
                         logger.info(f"Пользователь {user_id} пришел по реферальной ссылке от {referrer_id}")
                         # Генерируем реферальный код для нового пользователя, если он еще не создан
                         user_data = await db.get_user_data(user_id)
-                        if not user_data or not user_data.get("referral_code"):
+                        if not user_data or not user_data.referral_code:
                             await db.generate_and_set_referral_code(user_id)
                         break
                     except (ValueError, IndexError) as e:
@@ -89,8 +89,8 @@ async def subscription_handler(message: types.Message) -> None:
         
         # --- Логика реферальной программы при покупке подписки ---
         user_data = await db.get_user_data(user_id)
-        if user_data and user_data.get("referrer_id"):
-            referrer_id = user_data["referrer_id"]
+        if user_data and user_data.referrer_id:
+            referrer_id = user_data.referrer_id
             # Начисляем рефереру неделю бесплатного пользования
             await db.add_free_weeks_to_referrer(referrer_id, weeks_to_add=1)
             logger.info(f"Рефереру {referrer_id} добавлена 1 неделя подписки за приглашение пользователя {user_id}")
@@ -124,7 +124,7 @@ async def referral_cmd(message: types.Message) -> None:
         await message.answer("❌ Произошла ошибка при получении данных пользователя.")
         return
 
-    referral_code = user_data.get("referral_code")
+    referral_code = user_data.referral_code
     if not referral_code:
         referral_code = await db.generate_and_set_referral_code(user_id)
         if not referral_code:
@@ -245,7 +245,7 @@ async def callback_handler(callback: types.CallbackQuery, bot: Bot) -> None:
             await callback.answer()
             return
 
-        referral_code = user_data.get("referral_code")
+        referral_code = user_data.referral_code
         if not referral_code:
             referral_code = await db.generate_and_set_referral_code(user_id)
             if not referral_code:
