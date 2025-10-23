@@ -26,6 +26,8 @@ from .config import (
     SEGMENT_DURATION, OPENROUTER_API_KEY, FONT_PATH,
     YOOMONEY_WALLET, SUBSCRIPTION_AMOUNT
 )
+from .exceptions import PaymentError, TranscriptionError, FileProcessingError, APIError, NetworkError
+from .circuit_breaker import CircuitBreaker
 
 
 logger = logging.getLogger(__name__)
@@ -46,27 +48,37 @@ async def create_yoomoney_payment(user_id: int, amount: int, description: str) -
         "sum": amount,
         "label": payment_label,
     }
-    
-    async with httpx.AsyncClient() as client:
-        try:
-            # The POST request is for validation. A 302 redirect is expected and not an error.
-            await client.post(quickpay_url, data=params)
-            
-            # YooMoney QuickPay form doesn't return a JSON with a URL,
-            # it redirects. We build the URL for the user to follow.
-            # The above POST is more for validation/logging on YooMoney's side.
-            # The actual payment link is constructed with GET parameters.
-            
-            from urllib.parse import urlencode
-            encoded_params = urlencode(params)
-            payment_url = f"https://yoomoney.ru/quickpay/confirm.xml?{encoded_params}"
-            
-            logger.info(f"Создана ссылка на оплату для user_id {user_id}: {payment_label}")
-            return payment_url, payment_label
 
-        except httpx.RequestError as e:
-            logger.error(f"Ошибка при создании платежа YooMoney для user_id {user_id}: {e}")
-            return None, None
+    async def _make_request():
+        async with httpx.AsyncClient() as client:
+            response = await client.post(quickpay_url, data=params, follow_redirects=False)
+            if response.status_code == 302:
+                # Для YooMoney редирект 302 - это успешный ответ
+                redirect_url = response.headers.get('Location', '')
+                if redirect_url:
+                    return redirect_url, payment_label
+                else:
+                    raise PaymentError("YooMoney не вернул URL для оплаты")
+            else:
+                response.raise_for_status()
+                from urllib.parse import urlencode
+                encoded_params = urlencode(params)
+                payment_url = f"https://yoomoney.ru/quickpay/confirm.xml?{encoded_params}"
+                return payment_url, payment_label
+
+    circuit_breaker = CircuitBreaker(failure_threshold=3, recovery_timeout=30, expected_exception=(httpx.RequestError,))
+
+    for attempt in range(3):
+        try:
+            result = await circuit_breaker.call(_make_request)
+            logger.info(f"Создана ссылка на оплату для user_id {user_id}: {payment_label}")
+            return result
+        except (httpx.RequestError,) as e:
+            logger.warning(f"Попытка {attempt + 1}/3 создания платежа YooMoney не удалась: {e}")
+            if attempt == 2:
+                raise PaymentError(f"Не удалось создать платеж YooMoney: {e}") from e
+            await asyncio.sleep(2 ** attempt)
+    return None, None
 
 
 # =============================
@@ -160,27 +172,33 @@ class AudioProcessor:
                     for f in os.listdir(path):
                         os.remove(os.path.join(path, f))
                     os.rmdir(path)
-            except Exception as e:
+            except (OSError, FileNotFoundError) as e:
                 logger.warning(f"Ошибка удаления {path}: {e}")
 
 
 async def upload_to_assemblyai(file_path: str, retries: int = 3) -> str:
+    async def _make_request():
+        async with httpx.AsyncClient() as client:
+            with open(file_path, "rb") as f:
+                response = await client.post(
+                    f"{ASSEMBLYAI_BASE_URL}/upload",
+                    headers=HEADERS,
+                    files={"file": f},
+                    timeout=API_TIMEOUT
+                )
+            response.raise_for_status()
+            return response.json()["upload_url"]
+
+    circuit_breaker = CircuitBreaker(failure_threshold=3, recovery_timeout=30, expected_exception=(httpx.RequestError, httpx.HTTPStatusError, KeyError))
+
     for attempt in range(retries):
         try:
-            async with httpx.AsyncClient() as client:
-                with open(file_path, "rb") as f:
-                    response = await client.post(
-                        f"{ASSEMBLYAI_BASE_URL}/upload",
-                        headers=HEADERS,
-                        files={"file": f},
-                        timeout=API_TIMEOUT
-                    )
-                response.raise_for_status()
-                return response.json()["upload_url"]
-        except Exception as e:
+            result = await circuit_breaker.call(_make_request)
+            return result
+        except (httpx.RequestError, httpx.HTTPStatusError, KeyError) as e:
             logger.warning(f"Попытка {attempt + 1}/{retries} загрузки файла не удалась: {str(e)}")
             if attempt == retries - 1:
-                raise RuntimeError("Не удалось загрузить файл на сервер AssemblyAI") from e
+                raise TranscriptionError("Не удалось загрузить файл на сервер AssemblyAI") from e
             await asyncio.sleep(2 ** attempt)
 
 
@@ -196,30 +214,37 @@ async def transcribe_with_assemblyai(audio_url: str, retries: int = 3) -> Dict[s
         "format_text": True,
         "language_detection": True
     }
+
+    async def _make_request():
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                "https://api.assemblyai.com/v2/transcript",
+                headers=headers, json=payload
+            )
+            resp.raise_for_status()
+            transcript_id = resp.json()["id"]
+            while True:
+                status = await client.get(
+                    f"https://api.assemblyai.com/v2/transcript/{transcript_id}",
+                    headers=headers
+                )
+                result = status.json()
+                if result["status"] == "completed":
+                    return result
+                elif result["status"] == "error":
+                    raise TranscriptionError(result["error"])
+                await asyncio.sleep(3)
+
+    circuit_breaker = CircuitBreaker(failure_threshold=3, recovery_timeout=30, expected_exception=(httpx.RequestError, httpx.HTTPStatusError, TranscriptionError, KeyError))
+
     for attempt in range(retries):
         try:
-            async with httpx.AsyncClient() as client:
-                resp = await client.post(
-                    "https://api.assemblyai.com/v2/transcript",
-                    headers=headers, json=payload
-                )
-                resp.raise_for_status()
-                transcript_id = resp.json()["id"]
-                while True:
-                    status = await client.get(
-                        f"https://api.assemblyai.com/v2/transcript/{transcript_id}",
-                        headers=headers
-                    )
-                    result = status.json()
-                    if result["status"] == "completed":
-                        return result
-                    elif result["status"] == "error":
-                        raise Exception(result["error"])
-                    await asyncio.sleep(3)
-        except Exception as e:
+            result = await circuit_breaker.call(_make_request)
+            return result
+        except (httpx.RequestError, httpx.HTTPStatusError, TranscriptionError, KeyError) as e:
             logger.warning(f"Попытка {attempt + 1}/{retries} транскрипции не удалась: {str(e)}")
             if attempt == retries - 1:
-                raise
+                raise TranscriptionError("Не удалось выполнить транскрипцию") from e
             await asyncio.sleep(2 ** attempt)
 
 
@@ -340,18 +365,33 @@ MM:SS - [Следующая основная тема]
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.2
     }
-    try:
+
+    def _make_request():
         response = requests.post(url, headers=headers, data=json.dumps(data), timeout=60)
         response.raise_for_status()
         return response.json()['choices'][0]['message']['content'].strip()
-    except Exception:
-        fallback_result = "Тайм-коды\n\n"
-        for i, seg in enumerate(segments):
-            start_minute = i * SEGMENT_DURATION // 60
-            start_second = i * SEGMENT_DURATION % 60
-            start_code = f"{start_minute:02}:{start_second:02}"
-            fallback_result += f"{start_code} - {seg['text'][:50]}...\n"
-        return fallback_result
+
+    circuit_breaker = CircuitBreaker(failure_threshold=3, recovery_timeout=30, expected_exception=(requests.RequestException, KeyError))
+
+    for attempt in range(3):
+        try:
+            result = circuit_breaker.call(_make_request)
+            return result
+        except (requests.RequestException, KeyError) as e:
+            logger.warning(f"Попытка {attempt + 1}/3 генерации тайм-кодов не удалась: {e}")
+            if attempt == 2:
+                logger.info("Используем fallback для тайм-кодов")
+                break
+            asyncio.sleep(2 ** attempt)
+
+    # Fallback
+    fallback_result = "Тайм-коды\n\n"
+    for i, seg in enumerate(segments):
+        start_minute = i * SEGMENT_DURATION // 60
+        start_second = i * SEGMENT_DURATION % 60
+        start_code = f"{start_minute:02}:{start_second:02}"
+        fallback_result += f"{start_code} - {seg['text'][:50]}...\n"
+    return fallback_result
 
 
 async def convert_to_mp3(input_path: str) -> str:
@@ -403,7 +443,7 @@ async def process_audio_file(file_path: str, user_id: int, progress_callback: Op
             await progress_callback(1.0, "Обработка завершена!")
         logger.info(f"Транскрибация завершена, найдено {len(segments)} сегментов")
         return segments
-    except Exception as e:
+    except (TranscriptionError, FileProcessingError) as e:
         logger.error(f"Ошибка в process_audio_file: {str(e)}")
         raise
 
@@ -459,6 +499,6 @@ def create_custom_thumbnail(thumbnail_path: Optional[str] = None) -> Optional[io
             THUMBNAIL_CACHE[cache_key] = thumbnail_bytes.getvalue()
             thumbnail_bytes.seek(0)
             return thumbnail_bytes
-    except Exception as e:
+    except (IOError, OSError) as e:
         logger.error(f"Ошибка создания thumbnail: {e}")
         return None

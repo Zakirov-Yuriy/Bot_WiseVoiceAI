@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from aiogram import Bot, Dispatcher, types
+from aiogram.exceptions import TelegramBadRequest
 
 from src.config import TELEGRAM_BOT_TOKEN
 from src.database import init_db
@@ -39,7 +40,7 @@ async def setup_commands(bot: Bot) -> None:
     await bot.set_my_commands(COMMANDS["en"], language_code="en")
     try:
         await bot.set_chat_menu_button(menu_button=types.MenuButtonCommands())
-    except Exception as e:
+    except TelegramBadRequest as e:
         logger.warning(f"Не удалось установить кнопку меню: {e}")
 
 # =============================

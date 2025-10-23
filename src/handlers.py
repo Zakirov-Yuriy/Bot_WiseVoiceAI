@@ -19,6 +19,7 @@ from .config import (
     SUPPORTED_FORMATS, CUSTOM_THUMBNAIL_PATH, BASE_DIR
 )
 from .localization import get_string
+from .exceptions import PaymentError, TranscriptionError, FileProcessingError, APIError
 
 logger = logging.getLogger(__name__)
 
@@ -181,13 +182,13 @@ async def callback_handler(callback: types.CallbackQuery, bot: Bot) -> None:
         ui.user_settings[user_id]['format'] = new_fmt
         try:
             await callback.message.edit_text(get_string('settings_choose', 'ru'), reply_markup=ui.create_settings_keyboard(user_id))
-        except Exception:
+        except TelegramBadRequest:
             await callback.message.answer(get_string('settings_choose', 'ru'), reply_markup=ui.create_settings_keyboard(user_id))
 
     elif data == 'settings_back':
         try:
             await callback.message.edit_text(get_string('menu', 'ru'), reply_markup=ui.create_menu_keyboard())
-        except Exception:
+        except TelegramBadRequest:
             await callback.message.answer(get_string('menu', 'ru'), reply_markup=ui.create_menu_keyboard())
 
     elif data in ['select_speakers', 'select_plain', 'select_timecodes']:
@@ -233,7 +234,7 @@ async def callback_handler(callback: types.CallbackQuery, bot: Bot) -> None:
         try:
             await callback.message.delete()
             await process_audio_file_for_user(bot, callback.message, user_id, selections, audio_path)
-        except Exception as e:
+        except (TranscriptionError, FileProcessingError) as e:
             logger.error(f"Ошибка обработки после подтверждения для user_id {user_id}: {str(e)}")
             await callback.message.edit_text(f"❌ {get_string('error', 'ru', error=str(e))}")
 
@@ -410,7 +411,7 @@ async def universal_handler(message: types.Message, bot: Bot) -> None:
 
         else:
             await message.answer(f"❌ {get_string('error', 'ru', error=str(e))}")
-    except Exception as e:
+    except (FileProcessingError, APIError) as e:
         logger.error(f"Ошибка предварительной обработки для user_id {user_id}: {str(e)}")
         await message.answer(f"❌ {get_string('error', 'ru', error=str(e))}")
         if audio_path:
@@ -496,7 +497,7 @@ async def process_audio_file_for_user(bot: Bot, message: types.Message, user_id:
                     caption=filename.replace(chosen_ext, ""),
                     thumbnail=thumbnail_file if chosen_ext == '.pdf' else None
                 )
-            except Exception as e:
+            except TelegramBadRequest as e:
                 logger.error(f"Ошибка отправки файла {file_path}: {e}")
                 await bot.send_document(
                     chat_id,
@@ -512,7 +513,7 @@ async def process_audio_file_for_user(bot: Bot, message: types.Message, user_id:
         if not (await db.check_user_trials(user_id))[1]:
             await db.increment_trials(user_id)
 
-    except Exception as e:
+    except (TranscriptionError, FileProcessingError) as e:
         logger.exception(f"Ошибка обработки для user_id {user_id}: {str(e)}")
         await progress_message.edit_text(f"{EMOJI['error']} {get_string('error', lang, error=str(e))}")
     finally:
