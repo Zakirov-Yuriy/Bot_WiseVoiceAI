@@ -23,8 +23,8 @@ from PIL import Image, ImageDraw, ImageFont
 
 from .config import (
     ASSEMBLYAI_BASE_URL, HEADERS, API_TIMEOUT, FFMPEG_BIN, FFPROBE_BIN,
-    SEGMENT_DURATION, OPENROUTER_API_KEY, FONT_PATH,
-    YOOMONEY_WALLET, SUBSCRIPTION_AMOUNT
+    SEGMENT_DURATION, OPENROUTER_API_KEY, OPENROUTER_BASE_URL, OPENROUTER_MODEL, FONT_PATH,
+    YOOMONEY_WALLET, YOOMONEY_BASE_URL, SUBSCRIPTION_AMOUNT, THUMBNAIL_COLOR
 )
 from .exceptions import PaymentError, TranscriptionError, FileProcessingError, APIError, NetworkError
 from .circuit_breaker import CircuitBreaker
@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 async def create_yoomoney_payment(user_id: int, amount: int, description: str) -> Tuple[Optional[str], Optional[str]]:
     """Создает ссылку на оплату YooMoney."""
     payment_label = f"sub_{user_id}_{uuid.uuid4()}"
-    quickpay_url = "https://yoomoney.ru/quickpay/confirm.xml"
+    quickpay_url = f"{YOOMONEY_BASE_URL}/quickpay/confirm.xml"
     params = {
         "receiver": YOOMONEY_WALLET,
         "quickpay-form": "shop",
@@ -63,7 +63,7 @@ async def create_yoomoney_payment(user_id: int, amount: int, description: str) -
                 response.raise_for_status()
                 from urllib.parse import urlencode
                 encoded_params = urlencode(params)
-                payment_url = f"https://yoomoney.ru/quickpay/confirm.xml?{encoded_params}"
+                payment_url = f"{YOOMONEY_BASE_URL}/quickpay/confirm.xml?{encoded_params}"
                 return payment_url, payment_label
 
     circuit_breaker = CircuitBreaker(failure_threshold=3, recovery_timeout=30, expected_exception=(httpx.RequestError,))
@@ -218,14 +218,14 @@ async def transcribe_with_assemblyai(audio_url: str, retries: int = 3) -> Dict[s
     async def _make_request():
         async with httpx.AsyncClient() as client:
             resp = await client.post(
-                "https://api.assemblyai.com/v2/transcript",
+                f"{ASSEMBLYAI_BASE_URL}/transcript",
                 headers=headers, json=payload
             )
             resp.raise_for_status()
             transcript_id = resp.json()["id"]
             while True:
                 status = await client.get(
-                    f"https://api.assemblyai.com/v2/transcript/{transcript_id}",
+                    f"{ASSEMBLYAI_BASE_URL}/transcript/{transcript_id}",
                     headers=headers
                 )
                 result = status.json()
@@ -332,7 +332,7 @@ def format_results_plain(segments: List[Segment]) -> str:
 
 
 def generate_summary_timecodes(segments: List[Segment]) -> str:
-    url = "https://openrouter.ai/api/v1/chat/completions"
+    url = f"{OPENROUTER_BASE_URL}/chat/completions"
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
         "Content-Type": "application/json"
@@ -361,7 +361,7 @@ MM:SS - [Следующая основная тема]
 ...
 """
     data = {
-        "model": "z-ai/glm-4.5-air:free",
+        "model": OPENROUTER_MODEL,
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.2
     }
@@ -477,7 +477,7 @@ def create_custom_thumbnail(thumbnail_path: Optional[str] = None) -> Optional[io
                 return thumbnail_bytes
         else:
             target_size = (320, 320)
-            img = Image.new('RGB', target_size, color=(230, 50, 50))
+            img = Image.new('RGB', target_size, color=THUMBNAIL_COLOR)
             draw = ImageDraw.Draw(img)
             margin = 10
             draw.rectangle([margin, margin, target_size[0] - margin, target_size[1] - margin],

@@ -14,9 +14,11 @@ from . import services
 from . import ui
 from .ui import UserSelections
 from .config import (
+    settings,
     YOOMONEY_WALLET, YOOMONEY_REDIRECT_URI, SUBSCRIPTION_AMOUNT,
     SUBSCRIPTION_DURATION_DAYS, PAID_USER_FILE_LIMIT, FREE_USER_FILE_LIMIT,
-    SUPPORTED_FORMATS, CUSTOM_THUMBNAIL_PATH, BASE_DIR
+    SUPPORTED_FORMATS, CUSTOM_THUMBNAIL_PATH, BASE_DIR, SUPPORT_USERNAME,
+    SUPPORTED_AUDIO_FORMATS, SUPPORTED_VIDEO_FORMATS
 )
 from .localization import get_string
 from .exceptions import PaymentError, TranscriptionError, FileProcessingError, APIError
@@ -51,8 +53,8 @@ async def start_handler(message: types.Message, bot: Bot) -> None:
 
     welcome_text = (
         "🎉 *Привет!*\n\n"
-        "У вас есть *2 бесплатные попытки* попробовать сервис.\n\n"
-        "⚡️ Если ваш файл весит больше *20 МБ* — загрузите его в одно из популярных облачных хранилищ и отправьте мне ссылку:\n\n"
+        f"У вас есть *{settings.free_trials_count} бесплатные попытки* попробовать сервис.\n\n"
+        f"⚡️ Если ваш файл весит больше *{settings.max_file_size_mb} МБ* — загрузите его в одно из популярных облачных хранилищ и отправьте мне ссылку:\n\n"
         "• [Dropbox](https://www.dropbox.com/)\n"
         "• [Google Drive](https://drive.google.com/)\n"
         "• [OneDrive](https://onedrive.live.com/)\n\n"
@@ -133,14 +135,14 @@ async def referral_cmd(message: types.Message) -> None:
             return
 
     # Формируем реферальную ссылку
-    bot_username = "@Transcribe_to_bot" # Замените на реальное имя вашего бота
-    referral_link = f"https://t.me/{bot_username}?start=ref_{user_id}"
+    bot_username = f"@{settings.bot_username}"
+    referral_link = f"https://t.me/{settings.bot_username}?start=ref_{user_id}"
     
     # Пример текста для реферального сообщения
     referral_message_template = (
         "✨ Вы приглашены в Transcribe To — бота для удобного и точного преобразования аудио и видео в текст!\n\n"
-        "🎁 Забирайте 2 бесплатные попытки прямо сейчас 👇\n\n"
-        f"Telegram: {bot_username}\n\n"
+        f"🎁 Забирайте {settings.free_trials_count} бесплатные попытки прямо сейчас 👇\n\n"
+        f"Telegram: @{settings.bot_username}\n\n"
         "Просто отправьте аудио или видео — и получите готовый текст с тайм-кодами и поддержкой разных спикеров 🙌\n\n"
         "--- Ваш реферальный код: {referral_code} ---\n"
         "--- Ваша реферальная ссылка: {referral_link} ---"
@@ -155,7 +157,7 @@ async def referral_cmd(message: types.Message) -> None:
 
 
 async def support_cmd(message: types.Message) -> None:
-    await message.answer("Напишите нам: @Zak_Yuri")
+    await message.answer(f"Напишите нам: {SUPPORT_USERNAME}")
 
 async def callback_handler(callback: types.CallbackQuery, bot: Bot) -> None:
     user_id = callback.from_user.id
@@ -254,8 +256,8 @@ async def callback_handler(callback: types.CallbackQuery, bot: Bot) -> None:
                 await callback.answer()
                 return
         
-        bot_username = "@Transcribe_to_bot" # Замените на реальное имя вашего бота
-        referral_link = f"https://t.me/{bot_username}?start=ref_{user_id}"
+        bot_username = f"@{settings.bot_username}"
+        referral_link = f"https://t.me/{settings.bot_username}?start=ref_{user_id}"
         
         # Сохраняем ссылку, если она была сгенерирована только что
         # Предполагаем, что в db.py есть функция update_user_referral_link(user_id, referral_link)
@@ -266,7 +268,7 @@ async def callback_handler(callback: types.CallbackQuery, bot: Bot) -> None:
             await callback.message.answer(
                 f"✨ Вот ваше реферальное приглашение:\n\n"
                 f"🎁 Забирайте 2 бесплатные попытки прямо сейчас 👇\n\n"
-                f"Telegram: @Transcribe_to_bot\n\n"
+                f"Telegram: @{settings.bot_username}\n\n"
                 f"Просто отправьте аудио или видео — и получите готовый текст с тайм-кодами и поддержкой разных спикеров 🙌\n\n"
                 f"Ваша реферальная ссылка: {referral_link}",
                 reply_markup=ui.create_menu_keyboard(), # Или другая клавиатура, если нужно
@@ -303,8 +305,8 @@ async def universal_handler(message: types.Message, bot: Bot) -> None:
             return
 
         # Проверка поддерживаемых форматов
-        supported_audio_formats = {'.mp3', '.m4a', '.flac', '.wav', '.ogg', '.opus'}
-        supported_video_formats = {'.mp4', '.avi', '.mov', '.mkv', '.webm', '.flv'}
+        supported_audio_formats = set(f".{fmt}" for fmt in SUPPORTED_AUDIO_FORMATS)
+        supported_video_formats = set(f".{fmt}" for fmt in SUPPORTED_VIDEO_FORMATS)
 
         if message.audio:
             # Для аудио проверяем mime_type или file_name
@@ -321,7 +323,9 @@ async def universal_handler(message: types.Message, bot: Bot) -> None:
 
             # Проверяем расширение
             if file_ext and file_ext not in supported_audio_formats and file_ext not in supported_video_formats:
-                await message.answer(f"❌ Файл в формате .{file_ext} не поддерживается. Поддерживаемые форматы: MP3, M4A, FLAC, WAV, OGG, OPUS (аудио) и MP4, AVI, MOV, MKV, WEBM, FLV (видео).", reply_markup=ui.create_menu_keyboard())
+                audio_list = ", ".join(SUPPORTED_AUDIO_FORMATS)
+                video_list = ", ".join(SUPPORTED_VIDEO_FORMATS)
+                await message.answer(f"❌ Файл в формате .{file_ext} не поддерживается. Поддерживаемые форматы: {audio_list} (аудио) и {video_list} (видео).", reply_markup=ui.create_menu_keyboard())
                 return
         elif message.voice:
             # Для голосовых сообщений проверяем mime_type
@@ -361,10 +365,10 @@ async def universal_handler(message: types.Message, bot: Bot) -> None:
             except TelegramBadRequest as e:
                 if "file is too big" in str(e):
                     await message.answer(
-                        '❌ Ваш файл превысил допустимый размер (20 МБ).\n'
-                        'Пожалуйста, загрузите его в один из облачных сервисов:\n'
-                        '• <a href="https://drive.google.com">Google Drive</a>\n'
+                        f'❌ Ваш файл превысил допустимый размер ({settings.max_file_size_mb} МБ).\n'
+                        'Пожалуйста, загрузите его в одно из облачных сервисов:\n'
                         '• <a href="https://www.dropbox.com">Dropbox</a>\n'
+                        '• <a href="https://drive.google.com">Google Drive</a>\n'
                         '• <a href="https://onedrive.live.com">OneDrive</a>\n'
                         '• <a href="https://disk.yandex.ru">Яндекс.Диск</a>\n\n'
                         'После этого пришлите мне ссылку.\n'
@@ -374,7 +378,6 @@ async def universal_handler(message: types.Message, bot: Bot) -> None:
                         parse_mode="HTML",
                         disable_web_page_preview=True  # ✅ Отключает предпросмотр (убирает "рекламу")
                     )
-
                 else:
                     await message.answer(f"❌ {get_string('error', 'ru', error=str(e))}")
                 return
@@ -395,7 +398,7 @@ async def universal_handler(message: types.Message, bot: Bot) -> None:
     except TelegramBadRequest as e:
         if "file is too big" in str(e):
             await message.answer(
-                '❌ Ваш файл превысил допустимый размер (20 МБ).\n'
+                f'❌ Ваш файл превысил допустимый размер ({settings.max_file_size_mb} МБ).\n'
                 'Пожалуйста, загрузите его в один из облачных сервисов:\n'
                 '• <a href="https://www.dropbox.com">Dropbox</a>\n'
                 '• <a href="https://drive.google.com">Google Drive</a>\n'

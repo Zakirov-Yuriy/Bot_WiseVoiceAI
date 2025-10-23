@@ -2,3 +2,10 @@ pytest
 pytest-asyncio
 aiogram-tests
 pytest-mock
+mypy  # Type checking
+black  # Code formatting
+flake8  # Linting
+isort  # Import sorting
+pre-commit  # Pre-commit hooks
+coverage  # Test coverage
+pytest-cov  # Coverage plugin for pytest
