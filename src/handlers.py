@@ -8,6 +8,7 @@ from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command, CommandStart
 from aiogram.types import FSInputFile, BufferedInputFile
 from aiogram.exceptions import TelegramBadRequest
+import re
 
 from . import database as db
 from . import services
@@ -24,6 +25,31 @@ from .localization import get_string
 from .exceptions import PaymentError, TranscriptionError, FileProcessingError, APIError
 
 logger = logging.getLogger(__name__)
+
+# URL validation regex for safety
+URL_PATTERN = re.compile(
+    r"^https?://"  # http:// or https://
+    r"(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)*"  # domain...
+    r"[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?"  # domain
+    r"(?::[0-9]{1,5})?"  # optional port
+    r"(?:/?|[/?]\S+)$", re.IGNORECASE)
+
+def validate_url(url: str) -> bool:
+    """Validate URL format and safety"""
+    if not URL_PATTERN.match(url):
+        return False
+    # Additional checks can be added here (e.g., allowed domains)
+    from urllib.parse import urlparse
+    parsed = urlparse(url)
+    # Allow specific domains like youtube, dropbox, drive, onedrive, yandex
+    allowed_domains = [
+        'youtube.com', 'youtu.be', 'www.youtube.com',
+        'dropbox.com', 'dl.dropboxusercontent.com',
+        'drive.google.com', 'docs.google.com',
+        'onedrive.live.com', '1drv.ms',
+        'disk.yandex.ru', 'disk.yandex.com', 'yadi.sk'
+    ]
+    return parsed.netloc in allowed_domains
 
 # --- Handler Functions ---
 
@@ -340,7 +366,10 @@ async def universal_handler(message: types.Message, bot: Bot) -> None:
 
         if message.text and message.text.startswith(('http://', 'https://')):
             url = message.text.strip()
-            logger.info(f"Скачивание YouTube: {url}")
+            if not validate_url(url):
+                await message.answer("❌ Указанная ссылка не поддерживается или имеет неправильный формат. Пожалуйста, проверьте ссылку и попробуйте еще раз.", reply_markup=ui.create_menu_keyboard())
+                return
+            logger.info(f"Скачивание: {url}")
 
             async def download_progress(percent_value):
                 try:
