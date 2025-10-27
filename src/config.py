@@ -33,7 +33,7 @@ class AppSettings(BaseSettings):
     # =============================
     telegram_bot_token: str = Field(..., env="TELEGRAM_BOT_TOKEN")
     assemblyai_api_key: str = Field(..., env="ASSEMBLYAI_API_KEY")
-    openrouter_api_key: Optional[str] = Field(None, env="OPENROUTER_API_KEY")
+    openrouter_api_key_list: List[str] = Field(default_factory=list, env=None)
     openrouter_base_url: str = Field(default="https://openrouter.ai/api/v1", env="OPENROUTER_BASE_URL")
     openrouter_model: str = Field(default="z-ai/glm-4.5-air:free", env="OPENROUTER_MODEL")
     telegram_phone: str = Field(..., env="TELEGRAM_PHONE")
@@ -105,6 +105,7 @@ class AppSettings(BaseSettings):
         env_file = ".env"
         env_file_encoding = "utf-8"
         case_sensitive = False
+        extra = "ignore"
 
     @validator("admin_user_ids", pre=True)
     def parse_admin_user_ids(cls, v):
@@ -137,6 +138,19 @@ class AppSettings(BaseSettings):
         if isinstance(v, str):
             return [x.strip() for x in v.split(",") if x.strip()]
         return v
+
+    @validator("openrouter_api_key_list", pre=True)
+    def parse_openrouter_api_key_list(cls, v):
+        keys = []
+        # Новый список ключей
+        env_value = os.getenv("OPENROUTER_API_KEYS", "")
+        if env_value:
+            keys.extend(x.strip() for x in env_value.split(",") if x.strip())
+        # Для обратной совместимости с одиночным ключом
+        old_key = os.getenv("OPENROUTER_API_KEY", "")
+        if old_key and old_key.strip():
+            keys.append(old_key.strip())
+        return keys if keys else v if isinstance(v, list) else []
 
 # Create settings instance
 settings = AppSettings()
@@ -217,7 +231,7 @@ if settings.ffmpeg_path:
 # Keep old variable names for backward compatibility
 TELEGRAM_BOT_TOKEN: str = settings.telegram_bot_token
 ASSEMBLYAI_API_KEY: str = settings.assemblyai_api_key
-OPENROUTER_API_KEY: Optional[str] = settings.openrouter_api_key
+OPENROUTER_API_KEYS: List[str] = settings.openrouter_api_key_list
 OPENROUTER_BASE_URL: str = settings.openrouter_base_url
 OPENROUTER_MODEL: str = settings.openrouter_model
 TELEGRAM_PHONE: str = settings.telegram_phone

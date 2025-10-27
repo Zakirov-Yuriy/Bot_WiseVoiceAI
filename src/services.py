@@ -25,7 +25,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from .config import (
     ASSEMBLYAI_BASE_URL, HEADERS, API_TIMEOUT, FFMPEG_BIN, FFPROBE_BIN,
-    SEGMENT_DURATION, OPENROUTER_API_KEY, OPENROUTER_BASE_URL, OPENROUTER_MODEL, FONT_PATH,
+    SEGMENT_DURATION, OPENROUTER_API_KEYS, OPENROUTER_BASE_URL, OPENROUTER_MODEL, FONT_PATH,
     YOOMONEY_WALLET, YOOMONEY_BASE_URL, SUBSCRIPTION_AMOUNT, THUMBNAIL_COLOR
 )
 from .exceptions import PaymentError, TranscriptionError, FileProcessingError, APIError, NetworkError
@@ -33,6 +33,83 @@ from .circuit_breaker import CircuitBreaker
 
 
 logger = logging.getLogger(__name__)
+
+
+# =============================
+#     OpenRouter Client with API Key Rotation
+# =============================
+class OpenRouterClient:
+    """Клиент для работы с OpenRouter API с автоматической ротацией ключей при 429."""
+
+    def __init__(self, api_keys: List[str], base_url: str = OPENROUTER_BASE_URL, model: str = OPENROUTER_MODEL):
+        self.api_keys = api_keys or []
+        self.base_url = base_url
+        self.model = model
+        self.current_key_index = 0
+        self.keys_tried = 0
+
+    def get_current_key(self) -> Optional[str]:
+        """Получить текущий ключ."""
+        if not self.api_keys:
+            return None
+        return self.api_keys[self.current_key_index % len(self.api_keys)]
+
+    def switch_to_next_key(self):
+        """Переключиться на следующий ключ."""
+        self.current_key_index = (self.current_key_index + 1) % len(self.api_keys)
+        self.keys_tried += 1
+        logger.info(f"Переключаемся на следующий OPENROUTER API ключ, индекс {self.current_key_index}")
+
+    async def make_request(self, messages: List[Dict[str, str]], temperature: float = 0.2) -> str:
+        """Выполнить запрос к OpenRouter с автоматической ротацией ключей."""
+        if not self.api_keys:
+            logger.error("OPENROUTER_API_KEYS не настроены")
+            raise ValueError("OPENROUTER_API_KEYS не настроены")
+
+        url = f"{self.base_url}/chat/completions"
+        data = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": temperature
+        }
+
+        for attempt in range(len(self.api_keys)):
+            api_key = self.get_current_key()
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json"
+            }
+
+            try:
+                async with httpx.AsyncClient() as client:
+                    response = await client.post(url, headers=headers, json=data, timeout=60)
+                    if response.status_code == 429:
+                        logger.warning(f"Получен 429 (Too Many Requests) с ключом {self.current_key_index}, переключаемся на следующий")
+                        self.switch_to_next_key()
+                        continue
+                    response.raise_for_status()
+                    return response.json()['choices'][0]['message']['content'].strip()
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code == 429:
+                    logger.warning(f"HTTP 429 с ключом {self.current_key_index}, пробуем следующий")
+                    self.switch_to_next_key()
+                    continue
+                else:
+                    logger.error(f"OpenRouter API ошибка {e.response.status_code}: {e}")
+                    raise
+            except Exception as e:
+                logger.error(f"Ошибка запроса к OpenRouter: {e}")
+                if attempt < len(self.api_keys) - 1:
+                    self.switch_to_next_key()
+                    continue
+                raise
+
+        logger.error("Все OPENROUTER API ключи вернули ошибки или 429")
+        raise Exception("Все OPENROUTER API ключи исчерпаны")
+
+
+# Создаём экземпляр клиента
+openrouter_client = OpenRouterClient(OPENROUTER_API_KEYS)
 
 
 # =============================
@@ -334,11 +411,6 @@ def format_results_plain(segments: List[Segment]) -> str:
 
 
 async def generate_summary_timecodes(segments: List[Segment]) -> str:
-    url = f"{OPENROUTER_BASE_URL}/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-        "Content-Type": "application/json"
-    }
     full_text_with_timestamps = ""
     for i, seg in enumerate(segments):
         start_minute = i * SEGMENT_DURATION // 60
@@ -362,30 +434,12 @@ MM:SS - [Основная тема/событие]
 MM:SS - [Следующая основная тема]
 ...
 """
-    data = {
-        "model": OPENROUTER_MODEL,
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.2
-    }
 
-    async def _make_request():
-        async with httpx.AsyncClient() as client:
-            response = await client.post(url, headers=headers, json=data, timeout=60)
-            response.raise_for_status()
-            return response.json()['choices'][0]['message']['content'].strip()
-
-    circuit_breaker = CircuitBreaker(failure_threshold=3, recovery_timeout=30, expected_exception=(httpx.RequestError, httpx.HTTPStatusError, KeyError))
-
-    for attempt in range(3):
-        try:
-            result = await circuit_breaker.call(_make_request)
-            return result
-        except (httpx.RequestError, httpx.HTTPStatusError, KeyError) as e:
-            logger.warning(f"Попытка {attempt + 1}/3 генерации тайм-кодов не удалась: {e}")
-            if attempt == 2:
-                logger.info("Используем fallback для тайм-кодов")
-                break
-            await asyncio.sleep(2 ** attempt)
+    try:
+        return await openrouter_client.make_request([{"role": "user", "content": prompt}], temperature=0.2)
+    except Exception as e:
+        logger.warning(f"Попытка генерации тайм-кодов с OpenRouter не удалась: {e}")
+        logger.info("Используем fallback для тайм-кодов")
 
     # Fallback
     fallback_result = "Тайм-коды\n\n"
