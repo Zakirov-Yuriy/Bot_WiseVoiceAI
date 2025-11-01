@@ -72,6 +72,11 @@ class AppSettings(BaseSettings):
     subscription_duration_days: int = Field(default=30, env="SUBSCRIPTION_DURATION_DAYS", ge=1, le=365)
 
     # =============================
+    #        Database Settings
+    # =============================
+    database_url: str = Field(default="mysql+pymysql://user:password@localhost/bot_wisevoiceai", env="DATABASE_URL")
+
+    # =============================
     #        Bot Settings
     # =============================
     bot_username: str = Field(default="Transcribe_to_bot", env="BOT_USERNAME")
@@ -261,3 +266,4 @@ THUMBNAIL_COLOR: tuple = settings.thumbnail_color
 SUPPORT_USERNAME: str = settings.support_username
 SUPPORTED_AUDIO_FORMATS: List[str] = settings.supported_audio_formats
 SUPPORTED_VIDEO_FORMATS: List[str] = settings.supported_video_formats
+DATABASE_URL: str = settings.database_url

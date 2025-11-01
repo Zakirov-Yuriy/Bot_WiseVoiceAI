@@ -14,7 +14,7 @@ class User(Base):
     is_paid = Column(Boolean, default=False)
     subscription_expiry = Column(BigInteger, default=0)
     referrer_id = Column(Integer, nullable=True)
-    referral_code = Column(String, unique=True, nullable=True)
+    referral_code = Column(String(255), unique=True, nullable=True)
     free_weeks = Column(Integer, default=0)
 
 class UserData(BaseModel):
