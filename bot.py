@@ -6,6 +6,7 @@ from aiogram.exceptions import TelegramBadRequest
 from src.config import TELEGRAM_BOT_TOKEN
 from src.database import init_db
 from src.handlers import register_handlers
+from src.di import init_container
 
 # =============================
 #        Логирование
@@ -51,6 +52,7 @@ async def main():
     dp = Dispatcher()
 
     await init_db()
+    init_container()  # Initialize dependency injection container
     await setup_commands(bot)
     register_handlers(dp, bot)
 
