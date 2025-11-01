@@ -183,21 +183,105 @@ def _register_pdf_font_if_needed() -> None:
         pass
 
 def save_text_to_pdf(text: str, output_path: str) -> None:
-    _register_pdf_font_if_needed()
-    doc = SimpleDocTemplate(output_path, pagesize=A4,
-                            rightMargin=50, leftMargin=50,
-                            topMargin=50, bottomMargin=50)
-    styles = getSampleStyleSheet()
-    style = styles['Normal']
-    style.fontName = 'DejaVu' if 'DejaVu' in pdfmetrics.getRegisteredFontNames() else 'Helvetica'
-    style.fontSize = 12
-    style.leading = 15
-    paragraphs = [Paragraph(p.replace('\n', '<br />'), style) for p in text.split('\n\n')]
-    elems = []
-    for p in paragraphs:
-        elems.append(p)
-        elems.append(Spacer(1, 12))
-    doc.build(elems)
+    from reportlab.pdfgen import canvas
+    from reportlab.lib.units import inch
+    from reportlab.lib.pagesizes import A4
+
+    # Ensure text is properly encoded as UTF-8
+    if isinstance(text, str):
+        text = text.encode('utf-8').decode('utf-8')
+
+    # Create PDF with canvas for better UTF-8 support
+    c = canvas.Canvas(output_path, pagesize=A4)
+    width, height = A4
+
+    # Set margins
+    left_margin = inch
+    right_margin = inch
+    top_margin = inch
+    bottom_margin = inch
+    available_width = width - left_margin - right_margin
+
+    # Try to register and use DejaVu font
+    try:
+        if 'DejaVu' not in pdfmetrics.getRegisteredFontNames():
+            pdfmetrics.registerFont(TTFont("DejaVu", FONT_PATH))
+        font_name = "DejaVu"
+        c.setFont(font_name, 12)
+    except Exception as e:
+        logger.warning(f"Could not use DejaVu font: {e}, falling back to Helvetica")
+        font_name = "Helvetica"
+        c.setFont(font_name, 12)
+
+    # Get font metrics for text wrapping
+    font_size = 12
+    line_height = 14
+
+    # Function to wrap text to fit within available width
+    def wrap_text(text_line, max_width):
+        """Wrap text to fit within max_width, returning list of lines"""
+        if not text_line.strip():
+            return [text_line]
+
+        words = text_line.split()
+        lines = []
+        current_line = ""
+
+        for word in words:
+            # Check if adding this word would exceed the width
+            test_line = current_line + " " + word if current_line else word
+            if pdfmetrics.stringWidth(test_line, font_name, font_size) <= max_width:
+                current_line = test_line
+            else:
+                # If current_line is not empty, add it to lines
+                if current_line:
+                    lines.append(current_line)
+                # Start new line with current word
+                if pdfmetrics.stringWidth(word, font_name, font_size) <= max_width:
+                    current_line = word
+                else:
+                    # Word itself is too long, force break it
+                    current_line = word[:int(len(word) * (max_width / pdfmetrics.stringWidth(word, font_name, font_size)))]
+                    lines.append(current_line)
+                    current_line = word[len(current_line):]
+
+        # Add remaining line
+        if current_line:
+            lines.append(current_line)
+
+        return lines if lines else [""]
+
+    # Split text into paragraphs and process each
+    paragraphs = text.split('\n\n')
+    y_position = height - top_margin
+
+    for paragraph in paragraphs:
+        # Skip empty paragraphs
+        if not paragraph.strip():
+            continue
+
+        # Split paragraph into lines
+        lines = paragraph.split('\n')
+
+        for line in lines:
+            # Wrap the line
+            wrapped_lines = wrap_text(line, available_width)
+
+            for wrapped_line in wrapped_lines:
+                # Check if we need a new page
+                if y_position < bottom_margin + line_height:
+                    c.showPage()
+                    c.setFont(font_name, font_size)
+                    y_position = height - top_margin
+
+                # Draw the line
+                c.drawString(left_margin, y_position, wrapped_line)
+                y_position -= line_height
+
+        # Add extra space between paragraphs
+        y_position -= line_height * 0.5
+
+    c.save()
 
 
 def save_text_to_txt(text: str, output_path: str) -> None:
