@@ -14,6 +14,7 @@ from ..config import (
 )
 from ..localization import get_string
 from ..ui import create_menu_keyboard, create_settings_keyboard, create_referral_keyboard
+from ..services.security import audit_logger
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,15 @@ async def start_handler(message: types.Message, bot: Bot) -> None:
                     try:
                         referrer_id = int(param.split('_')[1])
                         await db.update_user_referrer(user_id, referrer_id)
+
+                        # Log referral link usage
+                        await audit_logger.log_referral_event(
+                            user_id=user_id,
+                            event_type="link_used",
+                            referrer_id=referrer_id,
+                            metadata={"source": "telegram_start_command"}
+                        )
+
                         logger.info(f"Пользователь {user_id} пришел по реферальной ссылке от {referrer_id}")
                         # Генерируем реферальный код для нового пользователя, если он еще не создан
                         user_data = await db.get_user_data(user_id)

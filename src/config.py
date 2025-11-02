@@ -125,6 +125,16 @@ class AppSettings(BaseSettings):
     supported_audio_formats: List[str] = Field(default=["mp3", "m4a", "flac", "wav", "ogg", "opus"], env="SUPPORTED_AUDIO_FORMATS")
     supported_video_formats: List[str] = Field(default=["mp4", "avi", "mov", "mkv", "webm", "flv"], env="SUPPORTED_VIDEO_FORMATS")
 
+    # =============================
+    #        Security Settings
+    # =============================
+    max_file_size_mb: int = Field(default=100, env="MAX_FILE_SIZE_MB", ge=1, le=1000)
+    enable_file_validation: bool = Field(default=True, env="ENABLE_FILE_VALIDATION")
+    enable_audit_logging: bool = Field(default=True, env="ENABLE_AUDIT_LOGGING")
+    api_key_rotation_enabled: bool = Field(default=True, env="API_KEY_ROTATION_ENABLED")
+    api_key_max_usage: int = Field(default=1000, env="API_KEY_MAX_USAGE", ge=100, le=10000)
+    api_key_rotation_interval_hours: int = Field(default=1, env="API_KEY_ROTATION_INTERVAL_HOURS", ge=1, le=24)
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

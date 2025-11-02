@@ -22,6 +22,7 @@ from ..config import (
 from ..localization import get_string
 from ..exceptions import PaymentError, TranscriptionError, FileProcessingError, APIError
 from ..ui import create_menu_keyboard, create_transcription_selection_keyboard, ensure_user_settings
+from ..services.security import security_service, audit_logger
 
 logger = logging.getLogger(__name__)
 
@@ -151,6 +152,43 @@ async def universal_handler(message: types.Message, bot: Bot) -> None:
                 else:
                     await message.answer(f"❌ {get_string('error', 'ru', error=str(e))}")
                 return
+
+        # Security validation for downloaded/converted files
+        if audio_path and os.path.exists(audio_path):
+            is_valid, error_msg = security_service.validate_file_security(audio_path)
+            if not is_valid:
+                await message.answer(f"❌ {error_msg}", reply_markup=create_menu_keyboard())
+                # Log security event
+                await audit_logger.log_security_event(
+                    user_id=user_id,
+                    event_type="file_validation_failed",
+                    severity="warning",
+                    details={
+                        "file_path": audio_path,
+                        "error": error_msg,
+                        "file_size": os.path.getsize(audio_path) if os.path.exists(audio_path) else 0
+                    }
+                )
+                # Clean up file
+                try:
+                    os.remove(audio_path)
+                except:
+                    pass
+                return
+
+            # Calculate file hash for audit logging
+            file_hash = security_service.calculate_file_hash(audio_path)
+            file_size = os.path.getsize(audio_path)
+
+            # Log successful file validation
+            await audit_logger.log_file_processing_event(
+                user_id=user_id,
+                file_hash=file_hash,
+                file_size=file_size,
+                mime_type="audio/mpeg",  # Converted to MP3
+                status="validated",
+                metadata={"source": "telegram_upload" if (message.audio or message.document or message.voice) else "url_download"}
+            )
 
         user_selections[user_id] = {
             'speakers': False,

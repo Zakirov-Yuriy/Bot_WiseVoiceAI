@@ -15,6 +15,7 @@ from ..config import (
 )
 from ..localization import get_string
 from ..ui import create_menu_keyboard, create_settings_keyboard, create_referral_keyboard
+from ..services.security import audit_logger
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,20 @@ async def subscription_handler(message: types.Message) -> None:
     )
 
     if payment_url:
+        # Log payment creation
+        await audit_logger.log_payment_event(
+            user_id=user_id,
+            event_type="created",
+            amount=SUBSCRIPTION_AMOUNT,
+            payment_id=payment_label,
+            status="pending",
+            metadata={
+                "description": description,
+                "payment_url": payment_url,
+                "subscription_days": SUBSCRIPTION_DURATION_DAYS
+            }
+        )
+
         await message.answer(
             f"💳 Для оформления подписки перейдите по ссылке:\n[Оплатить подписку]({payment_url})\n"
             f"Стоимость: {SUBSCRIPTION_AMOUNT} руб. на {SUBSCRIPTION_DURATION_DAYS} дней.\n"
@@ -45,6 +60,18 @@ async def subscription_handler(message: types.Message) -> None:
             referrer_id = user_data.referrer_id
             # Начисляем рефереру неделю бесплатного пользования
             await db.add_free_weeks_to_referrer(referrer_id, weeks_to_add=1)
+
+            # Log referral bonus
+            await audit_logger.log_referral_event(
+                user_id=user_id,
+                event_type="bonus_awarded",
+                referrer_id=referrer_id,
+                metadata={
+                    "bonus_weeks": 1,
+                    "reason": "subscription_purchase"
+                }
+            )
+
             logger.info(f"Рефереру {referrer_id} добавлена 1 неделя подписки за приглашение пользователя {user_id}")
             # Опционально: уведомить реферера о начислении бонуса
             # try:

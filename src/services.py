@@ -40,33 +40,16 @@ logger = logging.getLogger(__name__)
 #     OpenRouter Client with API Key Rotation
 # =============================
 class OpenRouterClient:
-    """Клиент для работы с OpenRouter API с автоматической ротацией ключей при 429."""
+    """Клиент для работы с OpenRouter API с автоматической ротацией ключей."""
 
-    def __init__(self, api_keys: List[str], base_url: str = OPENROUTER_BASE_URL, model: str = OPENROUTER_MODEL):
-        self.api_keys = api_keys or []
+    def __init__(self, base_url: str = OPENROUTER_BASE_URL, model: str = OPENROUTER_MODEL):
         self.base_url = base_url
         self.model = model
-        self.current_key_index = 0
-        self.keys_tried = 0
-        logger.info(f"Инициализирован OpenRouter клиент с {len(self.api_keys)} ключами")
-
-    def get_current_key(self) -> Optional[str]:
-        """Получить текущий ключ."""
-        if not self.api_keys:
-            return None
-        return self.api_keys[self.current_key_index % len(self.api_keys)]
-
-    def switch_to_next_key(self):
-        """Переключиться на следующий ключ."""
-        self.current_key_index = (self.current_key_index + 1) % len(self.api_keys)
-        self.keys_tried += 1
-        logger.info(f"Переключаемся на следующий OPENROUTER API ключ, индекс {self.current_key_index}")
+        logger.info("Инициализирован OpenRouter клиент с API key manager")
 
     async def make_request(self, messages: List[Dict[str, str]], temperature: float = 0.2) -> str:
-        """Выполнить запрос к OpenRouter с автоматической ротацией ключей."""
-        if not self.api_keys:
-            logger.error("OPENROUTER_API_KEYS не настроены")
-            raise ValueError("OPENROUTER_API_KEYS не настроены")
+        """Выполнить запрос к OpenRouter с автоматической ротацией ключей через API key manager."""
+        from .services.security import api_key_manager
 
         url = f"{self.base_url}/chat/completions"
         data = {
@@ -75,9 +58,16 @@ class OpenRouterClient:
             "temperature": temperature
         }
 
-        for attempt in range(len(self.api_keys)):
-            api_key = self.get_current_key()
-            logger.debug(f"Попытка запроса к OpenRouter с ключом индекс {self.current_key_index}")
+        # Try with different keys if available
+        max_attempts = len(api_key_manager._keys) if api_key_manager._keys else 1
+
+        for attempt in range(max_attempts):
+            api_key = api_key_manager.get_current_key()
+            if not api_key:
+                logger.error("OPENROUTER_API_KEYS не настроены")
+                raise ValueError("OPENROUTER_API_KEYS не настроены")
+
+            logger.debug(f"Попытка запроса к OpenRouter с ключом (attempt {attempt + 1}/{max_attempts})")
             headers = {
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json"
@@ -87,23 +77,27 @@ class OpenRouterClient:
                 async with httpx.AsyncClient() as client:
                     response = await client.post(url, headers=headers, json=data, timeout=60)
                     if response.status_code == 429:
-                        logger.warning(f"Получен 429 (Too Many Requests) с ключом {self.current_key_index}, переключаемся на следующий")
-                        self.switch_to_next_key()
+                        logger.warning("Получен 429 (Too Many Requests), пробуем следующий ключ")
+                        api_key_manager._rotate_key()
                         continue
                     response.raise_for_status()
+
+                    # Mark key as used for rotation tracking
+                    api_key_manager.mark_key_used(api_key)
+
                     return response.json()['choices'][0]['message']['content'].strip()
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 429:
-                    logger.warning(f"HTTP 429 с ключом {self.current_key_index}, пробуем следующий")
-                    self.switch_to_next_key()
+                    logger.warning("HTTP 429, пробуем следующий ключ")
+                    api_key_manager._rotate_key()
                     continue
                 else:
                     logger.error(f"OpenRouter API ошибка {e.response.status_code}: {e}")
                     raise
             except Exception as e:
                 logger.error(f"Ошибка запроса к OpenRouter: {e}")
-                if attempt < len(self.api_keys) - 1:
-                    self.switch_to_next_key()
+                if attempt < max_attempts - 1:
+                    api_key_manager._rotate_key()
                     continue
                 raise
 
@@ -112,7 +106,7 @@ class OpenRouterClient:
 
 
 # Создаём экземпляр клиента
-openrouter_client = OpenRouterClient(OPENROUTER_API_KEYS)
+openrouter_client = OpenRouterClient()
 
 
 # =============================
