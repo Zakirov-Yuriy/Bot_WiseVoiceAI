@@ -77,6 +77,25 @@ class AppSettings(BaseSettings):
     database_url: str = Field(default="mysql+pymysql://user:password@localhost/bot_wisevoiceai", env="DATABASE_URL")
 
     # =============================
+    #        Redis Settings
+    # =============================
+    redis_url: str = Field(default="redis://localhost:6379/0", env="REDIS_URL")
+    redis_cache_ttl: int = Field(default=3600, env="REDIS_CACHE_TTL", ge=300, le=86400)  # 1 hour default
+    redis_user_cache_ttl: int = Field(default=1800, env="REDIS_USER_CACHE_TTL", ge=300, le=3600)  # 30 min default
+
+    # =============================
+    #        Celery Settings
+    # =============================
+    celery_broker_url: str = Field(default="redis://localhost:6379/1", env="CELERY_BROKER_URL")
+    celery_result_backend: str = Field(default="redis://localhost:6379/2", env="CELERY_RESULT_BACKEND")
+
+    # =============================
+    #        Monitoring Settings
+    # =============================
+    sentry_dsn: Optional[str] = Field(None, env="SENTRY_DSN")
+    prometheus_port: int = Field(default=8000, env="PROMETHEUS_PORT", ge=8000, le=9000)
+
+    # =============================
     #        Bot Settings
     # =============================
     bot_username: str = Field(default="Transcribe_to_bot", env="BOT_USERNAME")
@@ -267,3 +286,10 @@ SUPPORT_USERNAME: str = settings.support_username
 SUPPORTED_AUDIO_FORMATS: List[str] = settings.supported_audio_formats
 SUPPORTED_VIDEO_FORMATS: List[str] = settings.supported_video_formats
 DATABASE_URL: str = settings.database_url
+REDIS_URL: str = settings.redis_url
+REDIS_CACHE_TTL: int = settings.redis_cache_ttl
+REDIS_USER_CACHE_TTL: int = settings.redis_user_cache_ttl
+CELERY_BROKER_URL: str = settings.celery_broker_url
+CELERY_RESULT_BACKEND: str = settings.celery_result_backend
+SENTRY_DSN: Optional[str] = settings.sentry_dsn
+PROMETHEUS_PORT: int = settings.prometheus_port

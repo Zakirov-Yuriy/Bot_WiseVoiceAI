@@ -7,6 +7,11 @@ from src.config import TELEGRAM_BOT_TOKEN
 from src.database import init_db
 from src.handlers import register_handlers
 from src.di import init_container
+from src.cache import init_cache, close_cache
+from src.metrics import init_metrics
+from src.monitoring import init_sentry, SentryMiddleware
+from src.middleware import RateLimitMiddleware, LoggingMiddleware, UserContextMiddleware
+from src.celery_app import celery_app
 
 # =============================
 #        Логирование
@@ -48,16 +53,33 @@ async def setup_commands(bot: Bot) -> None:
 #            main
 # =============================
 async def main():
+    # Initialize monitoring and metrics
+    init_sentry()
+    init_metrics()
+
+    # Initialize cache
+    await init_cache()
+
     bot = Bot(token=TELEGRAM_BOT_TOKEN)
     dp = Dispatcher()
+
+    # Setup middleware
+    dp.update.middleware(LoggingMiddleware())
+    dp.update.middleware(UserContextMiddleware())
+    dp.update.middleware(RateLimitMiddleware())
+    dp.update.middleware(SentryMiddleware())
 
     await init_db()
     init_container()  # Initialize dependency injection container
     await setup_commands(bot)
     register_handlers(dp, bot)
 
-    logger.info("Бот запущен")
-    await dp.start_polling(bot)
+    logger.info("Бот запущен с поддержкой кеширования, очередей, rate limiting и мониторинга")
+    try:
+        await dp.start_polling(bot)
+    finally:
+        # Cleanup
+        await close_cache()
 
 
 if __name__ == "__main__":

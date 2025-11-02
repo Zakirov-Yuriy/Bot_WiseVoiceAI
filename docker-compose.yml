@@ -1,0 +1,132 @@
+version: '3.8'
+
+services:
+  bot:
+    build: .
+    container_name: wisevoiceai_bot
+    environment:
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - ASSEMBLYAI_API_KEY=${ASSEMBLYAI_API_KEY}
+      - OPENROUTER_API_KEYS=${OPENROUTER_API_KEYS}
+      - OPENROUTER_BASE_URL=${OPENROUTER_BASE_URL}
+      - OPENROUTER_MODEL=${OPENROUTER_MODEL}
+      - TELEGRAM_PHONE=${TELEGRAM_PHONE}
+      - TELEGRAM_API_ID=${TELEGRAM_API_ID}
+      - TELEGRAM_API_HASH=${TELEGRAM_API_HASH}
+      - ENABLE_PAYMENTS=${ENABLE_PAYMENTS}
+      - YOOMONEY_WALLET=${YOOMONEY_WALLET}
+      - YOOMONEY_CLIENT_ID=${YOOMONEY_CLIENT_ID}
+      - YOOMONEY_CLIENT_SECRET=${YOOMONEY_CLIENT_SECRET}
+      - PAYMENT_AMOUNT=${PAYMENT_AMOUNT}
+      - YOOMONEY_REDIRECT_URI=${YOOMONEY_REDIRECT_URI}
+      - YOOMONEY_BASE_URL=${YOOMONEY_BASE_URL}
+      - ADMIN_USER_IDS=${ADMIN_USER_IDS}
+      - ASSEMBLYAI_BASE_URL=${ASSEMBLYAI_BASE_URL}
+      - SEGMENT_DURATION=${SEGMENT_DURATION}
+      - MESSAGE_CHUNK_SIZE=${MESSAGE_CHUNK_SIZE}
+      - API_TIMEOUT=${API_TIMEOUT}
+      - FREE_USER_FILE_LIMIT=${FREE_USER_FILE_LIMIT}
+      - PAID_USER_FILE_LIMIT=${PAID_USER_FILE_LIMIT}
+      - SUBSCRIPTION_DURATION_DAYS=${SUBSCRIPTION_DURATION_DAYS}
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
+      - REDIS_CACHE_TTL=${REDIS_CACHE_TTL}
+      - REDIS_USER_CACHE_TTL=${REDIS_USER_CACHE_TTL}
+      - CELERY_BROKER_URL=${CELERY_BROKER_URL}
+      - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND}
+      - SENTRY_DSN=${SENTRY_DSN}
+      - PROMETHEUS_PORT=${PROMETHEUS_PORT}
+      - BOT_USERNAME=${BOT_USERNAME}
+      - MAX_FILE_SIZE_MB=${MAX_FILE_SIZE_MB}
+      - FREE_TRIALS_COUNT=${FREE_TRIALS_COUNT}
+      - DEFAULT_FORMAT=${DEFAULT_FORMAT}
+      - FONT_PATH=${FONT_PATH}
+      - CUSTOM_THUMBNAIL_PATH=${CUSTOM_THUMBNAIL_PATH}
+      - FFMPEG_PATH=${FFMPEG_PATH}
+      - THUMBNAIL_SIZE=${THUMBNAIL_SIZE}
+      - THUMBNAIL_COLOR=${THUMBNAIL_COLOR}
+      - SUPPORT_USERNAME=${SUPPORT_USERNAME}
+      - SUPPORTED_AUDIO_FORMATS=${SUPPORTED_AUDIO_FORMATS}
+      - SUPPORTED_VIDEO_FORMATS=${SUPPORTED_VIDEO_FORMATS}
+    ports:
+      - "8000:8000"  # Prometheus metrics
+    volumes:
+      - ./logs:/var/log/supervisor
+    depends_on:
+      - redis
+      - mysql
+    restart: unless-stopped
+    networks:
+      - wisevoiceai
+
+  redis:
+    image: redis:7-alpine
+    container_name: wisevoiceai_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    restart: unless-stopped
+    networks:
+      - wisevoiceai
+
+  mysql:
+    image: mysql:8.0
+    container_name: wisevoiceai_mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    restart: unless-stopped
+    networks:
+      - wisevoiceai
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: wisevoiceai_prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    restart: unless-stopped
+    networks:
+      - wisevoiceai
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: wisevoiceai_grafana
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards
+    restart: unless-stopped
+    networks:
+      - wisevoiceai
+
+volumes:
+  redis_data:
+  mysql_data:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  wisevoiceai:
+    driver: bridge

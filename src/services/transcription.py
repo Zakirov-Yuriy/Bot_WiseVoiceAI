@@ -18,6 +18,7 @@ from ..config import (
     SEGMENT_DURATION, OPENROUTER_API_KEYS, OPENROUTER_BASE_URL, OPENROUTER_MODEL, FONT_PATH,
     YOOMONEY_WALLET, YOOMONEY_BASE_URL, SUBSCRIPTION_AMOUNT, THUMBNAIL_COLOR
 )
+from ..cache import cache_manager
 from ..exceptions import PaymentError, TranscriptionError, FileProcessingError, APIError, NetworkError
 from ..circuit_breaker import CircuitBreaker
 
@@ -219,6 +220,15 @@ async def transcribe_with_assemblyai(audio_url: str, retries: int = 3) -> Dict[s
 async def process_audio_file(file_path: str, user_id: int, progress_callback: Optional[Callable] = None) -> List[Segment]:
     try:
         logger.info(f"Обработка аудиофайла: {file_path}")
+
+        # Check cache first
+        cached_result = await cache_manager.get_transcription_result(file_path, user_id)
+        if cached_result:
+            logger.info("Using cached transcription result")
+            if progress_callback:
+                await progress_callback(1.0, "Обработка завершена!")
+            return cached_result
+
         if progress_callback:
             await progress_callback(0.01, "Загружаю файл для обработки...")
         audio_url = await upload_to_assemblyai(file_path)
@@ -236,6 +246,10 @@ async def process_audio_file(file_path: str, user_id: int, progress_callback: Op
                 })
         elif "text" in result:
             segments.append({"speaker": "?", "text": (result["text"] or "").strip()})
+
+        # Cache the result
+        await cache_manager.set_transcription_result(file_path, user_id, segments)
+
         if progress_callback:
             await progress_callback(1.0, "Обработка завершена!")
         logger.info(f"Транскрибация завершена, найдено {len(segments)} сегментов")
