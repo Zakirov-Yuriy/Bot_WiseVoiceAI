@@ -2,13 +2,13 @@
 Monitoring and error tracking setup with Sentry.
 """
 
-import logging
 import sentry_sdk
 from sentry_sdk.integrations.logging import LoggingIntegration
 from sentry_sdk.integrations.asyncio import AsyncioIntegration
 from .config import SENTRY_DSN
+from .logging_config import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def init_sentry():
@@ -27,8 +27,8 @@ def init_sentry():
             # Integrations
             integrations=[
                 LoggingIntegration(
-                    level=logging.INFO,  # Capture info and above as breadcrumbs
-                    event_level=logging.ERROR  # Send errors as events
+                    level=20,  # INFO level (Capture info and above as breadcrumbs)
+                    event_level=40  # ERROR level (Send errors as events)
                 ),
                 AsyncioIntegration(),
             ],

@@ -2,14 +2,14 @@
 Middleware for rate limiting and other request processing.
 """
 
-import logging
 import time
 from typing import Dict, Any, Callable, Awaitable
 from aiogram import BaseMiddleware
 from aiogram.types import Message, CallbackQuery
 from .cache import cache_manager
+from .logging_config import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class RateLimitMiddleware(BaseMiddleware):

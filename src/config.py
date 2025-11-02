@@ -96,6 +96,14 @@ class AppSettings(BaseSettings):
     prometheus_port: int = Field(default=8000, env="PROMETHEUS_PORT", ge=8000, le=9000)
 
     # =============================
+    #        Logging Settings
+    # =============================
+    log_level: str = Field(default="INFO", env="LOG_LEVEL")
+    log_json_format: bool = Field(default=True, env="LOG_JSON_FORMAT")
+    log_file: Optional[str] = Field(default=None, env="LOG_FILE")
+    log_component: str = Field(default="wisevoiceai-bot", env="LOG_COMPONENT")
+
+    # =============================
     #        Bot Settings
     # =============================
     bot_username: str = Field(default="Transcribe_to_bot", env="BOT_USERNAME")

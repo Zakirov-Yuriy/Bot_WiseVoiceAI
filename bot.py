@@ -1,5 +1,4 @@
 import asyncio
-import logging
 from aiogram import Bot, Dispatcher, types
 from aiogram.exceptions import TelegramBadRequest
 
@@ -12,15 +11,18 @@ from src.metrics import init_metrics
 from src.monitoring import init_sentry, SentryMiddleware
 from src.middleware import RateLimitMiddleware, LoggingMiddleware, UserContextMiddleware
 from src.celery_app import celery_app
+from src.logging_config import setup_logging
+from src.config import settings
 
 # =============================
 #        Логирование
 # =============================
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+logger = setup_logging(
+    level=settings.log_level,
+    json_format=settings.log_json_format,
+    log_file=settings.log_file,
+    component=settings.log_component
 )
-logger = logging.getLogger(__name__)
 
 # =============================
 #         Команды меню
