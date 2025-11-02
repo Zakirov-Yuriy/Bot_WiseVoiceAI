@@ -22,6 +22,15 @@ from ..cache import cache_manager
 from ..exceptions import PaymentError, TranscriptionError, FileProcessingError, APIError, NetworkError
 from ..circuit_breaker import CircuitBreaker
 
+# AWS imports for microservice integration
+try:
+    import boto3
+    from botocore.exceptions import ClientError
+    AWS_AVAILABLE = True
+except ImportError:
+    AWS_AVAILABLE = False
+    boto3 = None
+
 
 logger = logging.getLogger(__name__)
 
@@ -108,6 +117,154 @@ class OpenRouterClient:
 
 # Создаём экземпляр клиента
 openrouter_client = OpenRouterClient(OPENROUTER_API_KEYS)
+
+
+# =============================
+#     AWS Microservice Client
+# =============================
+class TranscriptionMicroserviceClient:
+    """Клиент для работы с микросервисом транскрибации на AWS Lambda + S3"""
+
+    def __init__(self,
+                 s3_bucket: str,
+                 lambda_function: str,
+                 region: str = "us-east-1",
+                 use_microservice: bool = False):
+        self.s3_bucket = s3_bucket
+        self.lambda_function = lambda_function
+        self.region = region
+        self.use_microservice = use_microservice and AWS_AVAILABLE
+
+        if self.use_microservice:
+            self.s3_client = boto3.client('s3', region_name=region)
+            self.lambda_client = boto3.client('lambda', region_name=region)
+            logger.info(f"Инициализирован AWS микросервис клиент: S3={s3_bucket}, Lambda={lambda_function}")
+        else:
+            logger.info("AWS микросервис отключен, используется локальная обработка")
+
+    async def upload_file_to_s3(self, file_path: str, user_id: int, file_id: str) -> str:
+        """Загрузить файл в S3"""
+        if not self.use_microservice:
+            raise RuntimeError("Микросервис не настроен")
+
+        s3_key = f"transcription/{user_id}/{file_id}.mp3"
+
+        try:
+            self.s3_client.upload_file(file_path, self.s3_bucket, s3_key)
+            logger.info(f"Файл загружен в S3: {s3_key}")
+            return s3_key
+        except ClientError as e:
+            logger.error(f"Ошибка загрузки в S3: {e}")
+            raise TranscriptionError(f"Не удалось загрузить файл в S3: {str(e)}")
+
+    async def invoke_lambda_transcription(self, s3_key: str, user_id: int, file_id: str) -> str:
+        """Вызвать Lambda функцию для транскрибации"""
+        if not self.use_microservice:
+            raise RuntimeError("Микросервис не настроен")
+
+        payload = {
+            "s3_key": s3_key,
+            "user_id": user_id,
+            "file_id": file_id,
+            "bucket": self.s3_bucket
+        }
+
+        try:
+            response = self.lambda_client.invoke(
+                FunctionName=self.lambda_function,
+                InvocationType='Event',  # Асинхронный вызов
+                Payload=json.dumps(payload)
+            )
+            logger.info(f"Lambda функция вызвана для файла {file_id}")
+            return file_id
+        except ClientError as e:
+            logger.error(f"Ошибка вызова Lambda: {e}")
+            raise TranscriptionError(f"Не удалось вызвать Lambda функцию: {str(e)}")
+
+    async def get_transcription_result(self, file_id: str, timeout: int = 300) -> Optional[List[Segment]]:
+        """Получить результат транскрибации из S3"""
+        if not self.use_microservice:
+            return None
+
+        result_key = f"transcription/results/{file_id}.json"
+        start_time = time.time()
+
+        while time.time() - start_time < timeout:
+            try:
+                response = self.s3_client.get_object(Bucket=self.s3_bucket, Key=result_key)
+                result_data = json.loads(response['Body'].read().decode('utf-8'))
+
+                if result_data.get('status') == 'completed':
+                    segments = result_data.get('segments', [])
+                    logger.info(f"Результат транскрибации получен для файла {file_id}")
+                    return segments
+                elif result_data.get('status') == 'error':
+                    error_msg = result_data.get('error', 'Неизвестная ошибка')
+                    logger.error(f"Ошибка транскрибации для файла {file_id}: {error_msg}")
+                    raise TranscriptionError(f"Ошибка обработки файла: {error_msg}")
+
+            except self.s3_client.exceptions.NoSuchKey:
+                # Результат еще не готов
+                await asyncio.sleep(5)
+                continue
+            except ClientError as e:
+                logger.error(f"Ошибка получения результата из S3: {e}")
+                raise TranscriptionError(f"Не удалось получить результат: {str(e)}")
+
+        logger.warning(f"Таймаут ожидания результата для файла {file_id}")
+        return None
+
+    async def process_with_microservice(self, file_path: str, user_id: int, progress_callback: Optional[Callable] = None) -> List[Segment]:
+        """Обработать файл через микросервис"""
+        file_id = str(uuid.uuid4())
+
+        # Загружаем файл в S3
+        if progress_callback:
+            await progress_callback(0.1, "Загружаю файл в облако...")
+        s3_key = await self.upload_file_to_s3(file_path, user_id, file_id)
+
+        # Вызываем Lambda
+        if progress_callback:
+            await progress_callback(0.3, "Запускаю обработку...")
+        await self.invoke_lambda_transcription(s3_key, user_id, file_id)
+
+        # Ждем результат
+        if progress_callback:
+            await progress_callback(0.5, "Ожидаю завершения обработки...")
+        result = await self.get_transcription_result(file_id)
+
+        if result is None:
+            raise TranscriptionError("Превышено время ожидания обработки файла")
+
+        if progress_callback:
+            await progress_callback(1.0, "Обработка завершена!")
+
+        return result
+
+
+# Создаём экземпляр микросервис клиента (если настроен)
+def create_microservice_client():
+    """Создать клиент микросервиса на основе переменных окружения"""
+    s3_bucket = os.getenv("TRANSCRIPTION_S3_BUCKET")
+    lambda_function = os.getenv("TRANSCRIPTION_LAMBDA_FUNCTION")
+    aws_region = os.getenv("AWS_REGION", "us-east-1")
+    use_microservice = os.getenv("USE_TRANSCRIPTION_MICROSERVICE", "false").lower() == "true"
+
+    if use_microservice and s3_bucket and lambda_function:
+        return TranscriptionMicroserviceClient(
+            s3_bucket=s3_bucket,
+            lambda_function=lambda_function,
+            region=aws_region,
+            use_microservice=True
+        )
+    else:
+        return TranscriptionMicroserviceClient(
+            s3_bucket="",
+            lambda_function="",
+            use_microservice=False
+        )
+
+microservice_client = create_microservice_client()
 
 
 # ---------- Аудио-обработка / API ----------
@@ -229,34 +386,49 @@ async def process_audio_file(file_path: str, user_id: int, progress_callback: Op
                 await progress_callback(1.0, "Обработка завершена!")
             return cached_result
 
-        if progress_callback:
-            await progress_callback(0.01, "Загружаю файл для обработки...")
-        audio_url = await upload_to_assemblyai(file_path)
-        if progress_callback:
-            await progress_callback(0.30, "Запускаю транскрибацию...")
-        result = await transcribe_with_assemblyai(audio_url)
-        if progress_callback:
-            await progress_callback(0.90, "Формирую результаты...")
-        segments = []
-        if "utterances" in result and result["utterances"]:
-            for utt in result["utterances"]:
-                segments.append({
-                    "speaker": utt.get("speaker", "?"),
-                    "text": (utt.get("text") or "").strip()
-                })
-        elif "text" in result:
-            segments.append({"speaker": "?", "text": (result["text"] or "").strip()})
+        # Use microservice if available, otherwise local processing
+        if microservice_client.use_microservice:
+            logger.info("Используем микросервис транскрибации")
+            segments = await microservice_client.process_with_microservice(file_path, user_id, progress_callback)
+        else:
+            logger.info("Используем локальную обработку транскрибации")
+            segments = await process_audio_file_local(file_path, user_id, progress_callback)
 
         # Cache the result
         await cache_manager.set_transcription_result(file_path, user_id, segments)
 
-        if progress_callback:
-            await progress_callback(1.0, "Обработка завершена!")
         logger.info(f"Транскрибация завершена, найдено {len(segments)} сегментов")
         return segments
     except (TranscriptionError, FileProcessingError) as e:
         logger.error(f"Ошибка в process_audio_file: {str(e)}")
         raise
+
+
+async def process_audio_file_local(file_path: str, user_id: int, progress_callback: Optional[Callable] = None) -> List[Segment]:
+    """Локальная обработка аудиофайла (оригинальная логика)"""
+    if progress_callback:
+        await progress_callback(0.01, "Загружаю файл для обработки...")
+    audio_url = await upload_to_assemblyai(file_path)
+    if progress_callback:
+        await progress_callback(0.30, "Запускаю транскрибацию...")
+    result = await transcribe_with_assemblyai(audio_url)
+    if progress_callback:
+        await progress_callback(0.90, "Формирую результаты...")
+
+    segments = []
+    if "utterances" in result and result["utterances"]:
+        for utt in result["utterances"]:
+            segments.append({
+                "speaker": utt.get("speaker", "?"),
+                "text": (utt.get("text") or "").strip()
+            })
+    elif "text" in result:
+        segments.append({"speaker": "?", "text": (result["text"] or "").strip()})
+
+    if progress_callback:
+        await progress_callback(1.0, "Обработка завершена!")
+
+    return segments
 
 
 def format_results_with_speakers(segments: List[Segment]) -> str:

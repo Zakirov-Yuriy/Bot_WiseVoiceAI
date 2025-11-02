@@ -3,6 +3,7 @@
 venv/
 .env/
 .env/
+.env.example
 
 # Файлы Python-компиляции
 __pycache__/
