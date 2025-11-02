@@ -3,7 +3,7 @@ Security utilities for file validation, API key management, and audit logging.
 """
 import logging
 import hashlib
-import magic
+import mimetypes
 import os
 from typing import Dict, List, Optional, Any, Tuple
 from pathlib import Path
@@ -60,7 +60,12 @@ class SecurityService:
     def validate_mime_type(file_path: str) -> Tuple[bool, str]:
         """Validate file MIME type against allowed types."""
         try:
-            mime_type = magic.from_file(file_path, mime=True)
+            mime_type, _ = mimetypes.guess_type(file_path)
+            if mime_type is None:
+                # Fallback: try to guess from file extension
+                _, ext = os.path.splitext(file_path)
+                mime_type = mimetypes.types_map.get(ext.lower(), 'application/octet-stream')
+
             if mime_type not in ALLOWED_MIME_TYPES:
                 logger.warning(f"Disallowed MIME type: {mime_type}")
                 return False, mime_type
