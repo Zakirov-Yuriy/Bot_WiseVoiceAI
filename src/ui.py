@@ -6,6 +6,7 @@ class UserSelections(TypedDict):
     speakers: bool
     plain: bool
     timecodes: bool
+    summary: bool
     message_id: Optional[int]
     file_path: Optional[str]
 
@@ -102,7 +103,7 @@ def create_menu_keyboard() -> InlineKeyboardMarkup:
 
 
 def create_transcription_selection_keyboard(user_id: int) -> InlineKeyboardMarkup:
-    selections = user_selections.get(user_id, {'speakers': False, 'plain': False, 'timecodes': False})
+    selections = user_selections.get(user_id, {'speakers': False, 'plain': False, 'timecodes': False, 'summary': False})
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(
@@ -120,6 +121,12 @@ def create_transcription_selection_keyboard(user_id: int) -> InlineKeyboardMarku
             InlineKeyboardButton(
                 text=f"{'✅' if selections['timecodes'] else '⬜'} {get_string('caption_with_timecodes', 'ru')}",
                 callback_data="select_timecodes"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text=f"{'✅' if selections['summary'] else '⬜'} 🧩 Выжимка (сводка)",
+                callback_data="select_summary"
             )
         ],
         [

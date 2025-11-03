@@ -50,7 +50,7 @@ async def callback_handler(callback: types.CallbackQuery, bot: Bot) -> None:
         except TelegramBadRequest:
             await callback.message.answer(get_string('menu', 'ru'), reply_markup=create_menu_keyboard())
 
-    elif data in ['select_speakers', 'select_plain', 'select_timecodes']:
+    elif data in ['select_speakers', 'select_plain', 'select_timecodes', 'select_summary']:
         if user_id not in user_selections:
             await callback.answer("Сначала отправьте аудиофайл, голосовое сообщение или ссылку на YouTube.")
             return
@@ -61,6 +61,8 @@ async def callback_handler(callback: types.CallbackQuery, bot: Bot) -> None:
             selections['plain'] = not selections['plain']
         elif data == 'select_timecodes':
             selections['timecodes'] = not selections['timecodes']
+        elif data == 'select_summary':
+            selections['summary'] = not selections['summary']
         try:
             await callback.message.edit_text(
                 get_string('select_transcription', 'ru'),
@@ -75,7 +77,7 @@ async def callback_handler(callback: types.CallbackQuery, bot: Bot) -> None:
             await callback.answer("Сначала отправьте аудиофайл, голосовое сообщение или ссылку на YouTube.")
             return
         selections = user_selections[user_id]
-        if not any([selections['speakers'], selections['plain'], selections['timecodes']]):
+        if not any([selections['speakers'], selections['plain'], selections['timecodes'], selections['summary']]):
             await callback.message.edit_text(
                 f"❌ {get_string('no_selection', 'ru')}",
                 reply_markup=create_transcription_selection_keyboard(user_id)

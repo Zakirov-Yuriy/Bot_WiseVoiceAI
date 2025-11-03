@@ -194,6 +194,7 @@ async def universal_handler(message: types.Message, bot: Bot) -> None:
             'speakers': False,
             'plain': False,
             'timecodes': False,
+            'summary': False,
             'file_path': audio_path,
             'message_id': None
         }
@@ -243,7 +244,8 @@ async def process_audio_file_for_user(bot: Bot, message: types.Message, user_id:
         'error': '❌',
         'speakers': '👥',
         'text': '📝',
-        'timecodes': '⏱️'
+        'timecodes': '⏱️',
+        'summary': '🧩'
     }
 
     ensure_user_settings(user_id)
@@ -296,6 +298,12 @@ async def process_audio_file_for_user(bot: Bot, message: types.Message, user_id:
         if selections['timecodes']:
             timecodes_text = await services.generate_summary_timecodes(results)
             path, name = _save_with_format(timecodes_text, f"{EMOJI['timecodes']} Транскт с тайм-кодами")
+            out_files.append((path, name))
+
+        if selections['summary']:
+            from ..services.transcription import generate_transcription_summary
+            summary_text = await generate_transcription_summary(results)
+            path, name = _save_with_format(summary_text, f"{EMOJI['summary']} Выжимка из транскрибации")
             out_files.append((path, name))
 
         thumbnail_bytes = services.create_custom_thumbnail(CUSTOM_THUMBNAIL_PATH) if chosen_ext == '.pdf' else None
