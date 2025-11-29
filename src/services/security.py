@@ -104,16 +104,32 @@ class SecurityService:
             return ""
 
     @classmethod
-    def validate_file_security(cls, file_path: str) -> Tuple[bool, str]:
+    def validate_file_security(cls, file_path: str, max_size_bytes: Optional[int] = None) -> Tuple[bool, str]:
         """
         Comprehensive file security validation.
+
+        Args:
+            file_path: Path to the file to validate
+            max_size_bytes: Maximum allowed file size in bytes. If None, uses config default.
 
         Returns:
             Tuple[bool, str]: (is_valid, error_message)
         """
         # Check file size
-        if not cls.validate_file_size(file_path):
-            return False, "File size exceeds maximum allowed limit"
+        if max_size_bytes is not None:
+            # Use custom size limit
+            try:
+                file_size = os.path.getsize(file_path)
+                if file_size > max_size_bytes:
+                    logger.warning(f"File size {file_size} exceeds custom limit {max_size_bytes}")
+                    return False, "File size exceeds maximum allowed limit"
+            except OSError as e:
+                logger.error(f"Error checking file size: {e}")
+                return False, "Error checking file size"
+        else:
+            # Use default config limit
+            if not cls.validate_file_size(file_path):
+                return False, "File size exceeds maximum allowed limit"
 
         # Check MIME type
         is_valid_mime, mime_type = cls.validate_mime_type(file_path)

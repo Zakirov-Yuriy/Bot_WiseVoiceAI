@@ -155,7 +155,9 @@ async def universal_handler(message: types.Message, bot: Bot) -> None:
 
         # Security validation for downloaded/converted files
         if audio_path and os.path.exists(audio_path):
-            is_valid, error_msg = security_service.validate_file_security(audio_path)
+            # Use same file size limits as direct uploads for URL downloads
+            file_limit = PAID_USER_FILE_LIMIT if is_paid else FREE_USER_FILE_LIMIT
+            is_valid, error_msg = security_service.validate_file_security(audio_path, max_size_bytes=file_limit)
             if not is_valid:
                 await message.answer(f"❌ {error_msg}", reply_markup=create_menu_keyboard())
                 # Log security event
@@ -166,7 +168,8 @@ async def universal_handler(message: types.Message, bot: Bot) -> None:
                     details={
                         "file_path": audio_path,
                         "error": error_msg,
-                        "file_size": os.path.getsize(audio_path) if os.path.exists(audio_path) else 0
+                        "file_size": os.path.getsize(audio_path) if os.path.exists(audio_path) else 0,
+                        "source": "url_download"
                     }
                 )
                 # Clean up file
