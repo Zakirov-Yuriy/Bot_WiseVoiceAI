@@ -71,7 +71,8 @@ async def check_user_trials(user_id: int) -> tuple[bool, bool]:
                 is_paid = False
                 logger.info(f"Подписка для user_id {user_id} истекла")
 
-        can_use = is_paid or trials_used < 2
+        # can_use = is_paid or trials_used < 2  # Закомментировано: убрано ограничение на 2 попытки
+        can_use = True  # Все пользователи могут использовать без ограничений
         logger.info(f"User {user_id}: can_use={can_use}, is_paid={is_paid}, trials_used={trials_used}")
         return can_use, is_paid
 
