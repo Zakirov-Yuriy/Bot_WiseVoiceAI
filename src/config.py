@@ -49,6 +49,7 @@ class AppSettings(BaseSettings):
     yoomoney_client_secret: Optional[str] = Field(None, env="YOOMONEY_CLIENT_SECRET")
     payment_amount: int = Field(default="PAYMENT_AMOUNT", env="PAYMENT_AMOUNT")
     yoomoney_redirect_uri: Optional[str] = Field(None, env="YOOMONEY_REDIRECT_URI")
+    yoomoney_webhook_url: Optional[str] = Field(None, env="YOOMONEY_WEBHOOK_URL")
     yoomoney_base_url: str = Field(default="https://yoomoney.ru", env="YOOMONEY_BASE_URL")
 
     # =============================
