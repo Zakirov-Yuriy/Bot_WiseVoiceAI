@@ -10,7 +10,7 @@ from ..config import settings
 from ..localization import get_string
 from ..ui import create_menu_keyboard, create_settings_keyboard, create_transcription_selection_keyboard, ensure_user_settings
 from .command_handlers import start_handler, menu_handler, settings_cmd, referral_cmd, support_cmd
-from .payment_handlers import subscription_handler
+from .payment_handlers import subscription_handler, confirm_payment_handler, user_info_handler
 from .file_handlers import universal_handler, process_audio_file_for_user
 
 logger = logging.getLogger(__name__)
@@ -141,6 +141,8 @@ async def callback_handler(callback: types.CallbackQuery, bot: Bot) -> None:
 def register_handlers(dp: Dispatcher, bot: Bot):
     dp.message.register(start_handler, CommandStart())
     dp.message.register(subscription_handler, Command("subscription", "subscribe"))
+    dp.message.register(confirm_payment_handler, Command("confirm_payment"))
+    dp.message.register(user_info_handler, Command("user_info"))
     dp.message.register(menu_handler, Command("menu"))
     dp.message.register(settings_cmd, Command("settings"))
     dp.message.register(referral_cmd, Command("referral"))

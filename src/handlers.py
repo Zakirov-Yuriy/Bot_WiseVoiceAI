@@ -318,7 +318,8 @@ async def universal_handler(message: types.Message, bot: Bot) -> None:
     if not ((message.text and message.text.startswith(('http://', 'https://'))) or message.audio or message.document or message.voice):
         return
 
-    can_use, is_paid = await db.check_user_trials(user_id)
+    username = message.from_user.username
+    can_use, is_paid = await db.check_user_trials(user_id, username)
     if not can_use:
         await message.answer(f"❌ {get_string('no_trials', 'ru')}", reply_markup=ui.create_menu_keyboard())
         return

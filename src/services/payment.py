@@ -9,6 +9,7 @@ from ..config import (
 )
 from ..exceptions import PaymentError
 from ..circuit_breaker import CircuitBreaker
+from ..database import activate_subscription
 
 logger = logging.getLogger(__name__)
 
@@ -59,3 +60,36 @@ async def create_yoomoney_payment(user_id: int, amount: int, description: str) -
                 raise PaymentError(f"Не удалось создать платеж YooMoney: {e}") from e
             time.sleep(2 ** attempt)
     return None, None
+
+
+async def confirm_payment_and_activate_subscription(payment_label: str, username: Optional[str] = None) -> bool:
+    """
+    Manually confirm payment and activate subscription.
+    This function parses the payment label to extract user_id and activates the subscription.
+    """
+    try:
+        # Parse payment label format: sub_{user_id}_{uuid}
+        if not payment_label.startswith("sub_"):
+            logger.error(f"Invalid payment label format: {payment_label}")
+            return False
+
+        parts = payment_label.split("_")
+        if len(parts) < 2:
+            logger.error(f"Invalid payment label format: {payment_label}")
+            return False
+
+        user_id_str = parts[1]
+        try:
+            user_id = int(user_id_str)
+        except ValueError:
+            logger.error(f"Invalid user_id in payment label: {payment_label}")
+            return False
+
+        # Activate subscription for the user
+        expiry_time = await activate_subscription(user_id, username=username)
+        logger.info(f"Подписка активирована для user_id {user_id} по платежу {payment_label}")
+        return True
+
+    except Exception as e:
+        logger.error(f"Ошибка при подтверждении платежа {payment_label}: {e}")
+        return False

@@ -60,7 +60,8 @@ async def universal_handler(message: types.Message, bot: Bot) -> None:
     if not ((message.text and message.text.startswith(('http://', 'https://'))) or message.audio or message.document or message.voice):
         return
 
-    can_use, is_paid = await db.check_user_trials(user_id)
+    username = message.from_user.username
+    can_use, is_paid = await db.check_user_trials(user_id, username)
     if not can_use:
         await message.answer(f"❌ {get_string('no_trials', 'ru')}", reply_markup=create_menu_keyboard())
         return
@@ -332,6 +333,9 @@ async def process_audio_file_for_user(bot: Bot, message: types.Message, user_id:
             f"{EMOJI['success']} {get_string('done')}\nВсе файлы успешно сформированы и отправлены",
             reply_markup=create_menu_keyboard()
         )
+
+        # Increment transcription count for user
+        await db.increment_transcription_count(user_id)
 
         # if not (await db.check_user_trials(user_id))[1]:
         #     await db.increment_trials(user_id)  # Закомментировано: убрано ограничение на попытки

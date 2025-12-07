@@ -11,9 +11,11 @@ class User(Base):
     __tablename__ = 'users'
 
     user_id = Column(BigInteger, primary_key=True)
+    username = Column(String(255), nullable=True)  # Telegram username like @Zak_Yuri
     trials_used = Column(Integer, default=0)
+    transcription_count = Column(Integer, default=0)  # How many transcriptions user has done
     is_paid = Column(Boolean, default=False)
-    subscription_expiry = Column(BigInteger, default=0)
+    subscription_expiry = Column(BigInteger, default=0)  # Timestamp when subscription expires
     referrer_id = Column(Integer, nullable=True)
     referral_code = Column(String(255), unique=True, nullable=True)
     free_weeks = Column(Integer, default=0)
@@ -31,7 +33,9 @@ class AuditLog(Base):
 
 class UserData(BaseModel):
     user_id: int
+    username: Optional[str] = None
     trials_used: int = 0
+    transcription_count: int = 0
     is_paid: bool = False
     subscription_expiry: int = 0
     referrer_id: Optional[int] = None

@@ -32,7 +32,7 @@ async def init_db() -> None:
         logger.error(f"Ошибка инициализации базы данных: {e}")
         raise
 
-async def check_user_trials(user_id: int) -> tuple[bool, bool]:
+async def check_user_trials(user_id: int, username: Optional[str] = None) -> tuple[bool, bool]:
     if user_id in ADMIN_USER_IDS:
         logger.info(f"User {user_id} is an admin, granting full access.")
         return True, True
@@ -47,7 +47,9 @@ async def check_user_trials(user_id: int) -> tuple[bool, bool]:
             # Create new user
             user = User(
                 user_id=user_id,
+                username=username,
                 trials_used=0,
+                transcription_count=0,
                 is_paid=False,
                 subscription_expiry=0,
                 referrer_id=None,
@@ -59,6 +61,11 @@ async def check_user_trials(user_id: int) -> tuple[bool, bool]:
             trials_used = 0
             is_paid = False
         else:
+            # Update username if provided and different
+            if username and user.username != username:
+                user.username = username
+                await session.commit()
+
             trials_used = user.trials_used
             is_paid = user.is_paid
             subscription_expiry = user.subscription_expiry
@@ -87,7 +94,19 @@ async def increment_trials(user_id: int) -> None:
         await session.commit()
         logger.info(f"Попытки для user {user_id} обновлены")
 
-async def activate_subscription(user_id: int, weeks: int = SUBSCRIPTION_DURATION_DAYS) -> int:
+async def increment_transcription_count(user_id: int) -> None:
+    """Increment the transcription count for a user"""
+    async with async_session() as session:
+        stmt = (
+            update(User)
+            .where(User.user_id == user_id)
+            .values(transcription_count=User.transcription_count + 1)
+        )
+        await session.execute(stmt)
+        await session.commit()
+        logger.info(f"Количество транскрибаций для user {user_id} увеличено")
+
+async def activate_subscription(user_id: int, weeks: int = SUBSCRIPTION_DURATION_DAYS, username: Optional[str] = None) -> int:
     async with async_session() as session:
         stmt = select(User).where(User.user_id == user_id)
         result = await session.execute(stmt)
@@ -97,7 +116,9 @@ async def activate_subscription(user_id: int, weeks: int = SUBSCRIPTION_DURATION
             # Create user if doesn't exist
             user = User(
                 user_id=user_id,
+                username=username,
                 trials_used=0,
+                transcription_count=0,
                 is_paid=True,
                 subscription_expiry=0,
                 referrer_id=None,
@@ -105,6 +126,10 @@ async def activate_subscription(user_id: int, weeks: int = SUBSCRIPTION_DURATION
                 free_weeks=0
             )
             session.add(user)
+        else:
+            # Update username if provided
+            if username and user.username != username:
+                user.username = username
 
         current_expiry = user.subscription_expiry if user.subscription_expiry else 0
         start_time = max(int(time.time()), current_expiry) if current_expiry > int(time.time()) else int(time.time())
@@ -126,7 +151,9 @@ async def get_user_data(user_id: int) -> Optional[UserData]:
         if user:
             return UserData(
                 user_id=user.user_id,
+                username=user.username,
                 trials_used=user.trials_used,
+                transcription_count=user.transcription_count,
                 is_paid=user.is_paid,
                 subscription_expiry=user.subscription_expiry,
                 referrer_id=user.referrer_id,

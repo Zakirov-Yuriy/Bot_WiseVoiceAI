@@ -16,6 +16,7 @@ from ..config import (
 from ..localization import get_string
 from ..ui import create_menu_keyboard, create_settings_keyboard, create_referral_keyboard
 from ..services.security import audit_logger
+from ..services.payment import confirm_payment_and_activate_subscription
 
 logger = logging.getLogger(__name__)
 
@@ -82,5 +83,103 @@ async def subscription_handler(message: types.Message) -> None:
     else:
         await message.answer(
             "❌ Не удалось создать ссылку на оплату. Пожалуйста, попробуйте позже.",
+            reply_markup=create_menu_keyboard()
+        )
+
+
+async def confirm_payment_handler(message: types.Message) -> None:
+    """Admin command to manually confirm payment and activate subscription"""
+    user_id = message.from_user.id
+
+    # Check if user is admin
+    if user_id not in settings.admin_user_ids:
+        await message.answer("❌ У вас нет прав для выполнения этой команды.")
+        return
+
+    # Parse command arguments
+    args = message.text.split()
+    if len(args) < 2:
+        await message.answer(
+            "❌ Использование: /confirm_payment <payment_label>\n"
+            "Пример: /confirm_payment sub_123456789_abc123..."
+        )
+        return
+
+    payment_label = args[1]
+
+    # Confirm payment and activate subscription
+    success = await confirm_payment_and_activate_subscription(payment_label)
+
+    if success:
+        await message.answer(
+            f"✅ Платеж {payment_label} подтвержден и подписка активирована!",
+            reply_markup=create_menu_keyboard()
+        )
+
+        # Log admin action
+        await audit_logger.log_admin_event(
+            admin_id=user_id,
+            action="confirm_payment",
+            target_id=None,  # Could extract user_id from label if needed
+            metadata={
+                "payment_label": payment_label,
+                "result": "success"
+            }
+        )
+    else:
+        await message.answer(
+            f"❌ Не удалось подтвердить платеж {payment_label}. Проверьте правильность метки платежа.",
+            reply_markup=create_menu_keyboard()
+        )
+
+
+async def user_info_handler(message: types.Message) -> None:
+    """Admin command to get user information"""
+    user_id = message.from_user.id
+
+    # Check if user is admin
+    if user_id not in settings.admin_user_ids:
+        await message.answer("❌ У вас нет прав для выполнения этой команды.")
+        return
+
+    # Parse command arguments
+    args = message.text.split()
+    if len(args) < 2:
+        await message.answer(
+            "❌ Использование: /user_info <user_id>\n"
+            "Пример: /user_info 123456789"
+        )
+        return
+
+    try:
+        target_user_id = int(args[1])
+    except ValueError:
+        await message.answer("❌ Неверный формат user_id.")
+        return
+
+    # Get user data
+    user_data = await db.get_user_data(target_user_id)
+
+    if user_data:
+        expiry_str = "Не активна"
+        if user_data.subscription_expiry and user_data.subscription_expiry > 0:
+            import time
+            expiry_str = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(user_data.subscription_expiry))
+
+        await message.answer(
+            f"👤 Информация о пользователе {target_user_id}:\n"
+            f"Имя пользователя: {user_data.username or 'Не указано'}\n"
+            f"Количество транскрибаций: {user_data.transcription_count}\n"
+            f"Использовано попыток: {user_data.trials_used}\n"
+            f"Статус подписки: {'Активна' if user_data.is_paid else 'Не активна'}\n"
+            f"Окончание подписки: {expiry_str}\n"
+            f"Бесплатных недель: {user_data.free_weeks}\n"
+            f"Реферальный код: {user_data.referral_code or 'Не установлен'}\n"
+            f"Приглашен реферрером: {user_data.referrer_id or 'Нет'}",
+            reply_markup=create_menu_keyboard()
+        )
+    else:
+        await message.answer(
+            f"❌ Пользователь {target_user_id} не найден в базе данных.",
             reply_markup=create_menu_keyboard()
         )
