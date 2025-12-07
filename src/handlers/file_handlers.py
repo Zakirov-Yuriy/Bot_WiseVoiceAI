@@ -337,8 +337,10 @@ async def process_audio_file_for_user(bot: Bot, message: types.Message, user_id:
         # Increment transcription count for user
         await db.increment_transcription_count(user_id)
 
-        # if not (await db.check_user_trials(user_id))[1]:
-        #     await db.increment_trials(user_id)  # Закомментировано: убрано ограничение на попытки
+        # Increment trials for non-paid users
+        _, is_paid = await db.check_user_trials(user_id)
+        if not is_paid:
+            await db.increment_trials(user_id)
 
     except (TranscriptionError, FileProcessingError) as e:
         logger.exception(f"Ошибка обработки для user_id {user_id}: {str(e)}")
