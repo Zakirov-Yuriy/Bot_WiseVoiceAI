@@ -8,10 +8,11 @@ import asyncio
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import PlainTextResponse
 import uvicorn
+from aiogram import Bot
 
 from src.config import settings
 from src.services.payment import confirm_payment_and_activate_subscription
-from src.database import init_db
+from src.database import init_db, get_user_data
 
 logger = logging.getLogger(__name__)
 
@@ -61,11 +62,36 @@ async def yoomoney_webhook(request: Request):
             logger.warning("Payment without label received")
             return PlainTextResponse("No label", status_code=200)
 
+        # Extract user_id from label (format: sub_{user_id}_{uuid})
+        try:
+            label_parts = label.split('_')
+            if len(label_parts) >= 2:
+                user_id = int(label_parts[1])
+            else:
+                logger.error(f"Invalid label format: {label}")
+                return PlainTextResponse("Invalid label", status_code=400)
+        except (ValueError, IndexError) as e:
+            logger.error(f"Failed to extract user_id from label {label}: {e}")
+            return PlainTextResponse("Invalid user_id", status_code=400)
+
         # Activate subscription
         success = await confirm_payment_and_activate_subscription(label)
 
         if success:
             logger.info(f"Subscription activated successfully for payment label: {label}")
+
+            # Send notification to user
+            try:
+                bot = Bot(token=settings.telegram_bot_token)
+                await bot.send_message(
+                    chat_id=user_id,
+                    text="🎉 *Поздравляем!*\n\n✅ Ваша подписка успешно активирована!\n\nТеперь у вас есть неограниченный доступ ко всем функциям бота.",
+                    parse_mode='Markdown'
+                )
+                logger.info(f"Notification sent to user {user_id}")
+            except Exception as e:
+                logger.error(f"Failed to send notification to user {user_id}: {e}")
+
             return PlainTextResponse("OK", status_code=200)
         else:
             logger.error(f"Failed to activate subscription for payment label: {label}")
@@ -79,6 +105,17 @@ async def yoomoney_webhook(request: Request):
 async def health_check():
     """Health check endpoint"""
     return {"status": "healthy"}
+
+@app.post("/test/webhook")
+async def test_webhook(request: Request):
+    """Test endpoint for webhook debugging"""
+    try:
+        form_data = await request.form()
+        logger.info(f"Test webhook received: {dict(form_data)}")
+        return PlainTextResponse("Test OK", status_code=200)
+    except Exception as e:
+        logger.error(f"Test webhook error: {e}")
+        return PlainTextResponse("Test Error", status_code=500)
 
 if __name__ == "__main__":
     # Setup logging

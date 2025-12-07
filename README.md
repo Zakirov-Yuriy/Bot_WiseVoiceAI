@@ -87,6 +87,15 @@ Webhook сервер (`webhook_server.py`) работает на порту 8001
 /confirm_payment sub_123456789_abc123...
 ```
 
+### Настройка webhook в YooMoney
+
+1. **Войдите в ваш YooMoney аккаунт**: https://yoomoney.ru/
+2. **Перейдите в раздел "Инструменты для разработчиков"**
+3. **Добавьте HTTP-уведомление**:
+   - **URL для уведомлений**: `https://your-domain.com/yoomoney/webhook`
+   - **Метод**: POST
+   - **Формат**: application/x-www-form-urlencoded
+
 ### Переменные окружения для платежей
 
 ```env
@@ -97,6 +106,21 @@ YOOMONEY_CLIENT_SECRET=your_client_secret
 YOOMONEY_WEBHOOK_URL=https://your-domain.com/yoomoney/webhook
 PAYMENT_AMOUNT=20
 SUBSCRIPTION_DURATION_DAYS=30
+```
+
+### Запуск webhook сервера
+
+```bash
+# На сервере с публичным IP
+python webhook_server.py
+```
+
+### Тестирование webhook
+
+```bash
+# Протестировать endpoint
+curl -X POST https://your-domain.com/test/webhook \
+  -d "test=data"
 ```
 
 ## 🏗️ DevOps и развертывание
