@@ -16,7 +16,6 @@ from aiogram import types
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 from . import database as db
-from . import services
 from .config import SUPPORTED_FORMATS, DEFAULT_FORMAT, BASE_DIR # BASE_DIR might be needed for referral link generation if not hardcoded
 from .localization import get_string
 
@@ -94,6 +93,7 @@ def ensure_user_settings(user_id: int) -> None:
 
 def create_menu_keyboard() -> InlineKeyboardMarkup:
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="👤 Пользователь", callback_data="user")],
         [InlineKeyboardButton(text="💳 Оформить подписка", callback_data="subscribe")],
         # [InlineKeyboardButton(text="🌟 Реферальная программа", callback_data="send_referral_invitation")], # Добавлена кнопка реферальной программы
         [InlineKeyboardButton(text=get_string('settings', 'ru'), callback_data="settings")]

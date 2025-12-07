@@ -30,12 +30,14 @@ logger = setup_logging(
 COMMANDS = {
     "ru": [
         types.BotCommand(command="start",        description="Главное меню | Home"),
+        types.BotCommand(command="user",         description="Информация о пользователе | User info"),
         types.BotCommand(command="subscription", description="Купить подписку | Get subscription"),
         types.BotCommand(command="settings",     description="Настройки | Settings"),
         types.BotCommand(command="support",      description="Поддержка | Support"),
     ],
     "en": [
         types.BotCommand(command="start",        description="Home"),
+        types.BotCommand(command="user",         description="User info"),
         types.BotCommand(command="subscription", description="Get subscription"),
         types.BotCommand(command="settings",     description="Settings"),
         types.BotCommand(command="support",      description="Support"),
@@ -43,11 +45,14 @@ COMMANDS = {
 }
 
 async def setup_commands(bot: Bot) -> None:
+    logger.info(f"Регистрация команд меню: {COMMANDS['ru']}")
     await bot.set_my_commands(COMMANDS["ru"])
     await bot.set_my_commands(COMMANDS["ru"], language_code="ru")
     await bot.set_my_commands(COMMANDS["en"], language_code="en")
+    logger.info("Команды меню зарегистрированы")
     try:
         await bot.set_chat_menu_button(menu_button=types.MenuButtonCommands())
+        logger.info("Кнопка меню установлена")
     except TelegramBadRequest as e:
         logger.warning(f"Не удалось установить кнопку меню: {e}")
 

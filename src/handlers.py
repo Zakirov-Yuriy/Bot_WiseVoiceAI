@@ -92,7 +92,8 @@ async def start_handler(message: types.Message, bot: Bot) -> None:
     await message.answer(
     welcome_text,
     parse_mode="Markdown",
-    disable_web_page_preview=True  # ✅ убирает предпросмотр ссылок (рекламу)
+    disable_web_page_preview=True,  # ✅ убирает предпросмотр ссылок (рекламу)
+    reply_markup=ui.create_menu_keyboard()
 )
 
 
@@ -182,6 +183,9 @@ async def referral_cmd(message: types.Message) -> None:
     logger.info(f"Реферальная информация отправлена для user_id {user_id}")
 
 
+async def user_cmd(message: types.Message) -> None:
+    await message.answer("� Команда пользователя работает!")
+
 async def support_cmd(message: types.Message) -> None:
     await message.answer(f"Напишите нам: {SUPPORT_USERNAME}")
 
@@ -190,7 +194,28 @@ async def callback_handler(callback: types.CallbackQuery, bot: Bot) -> None:
     data = callback.data
     logger.info(f"Callback от user_id {user_id}: {data}")
 
-    if data == 'subscribe':
+    if data == 'user':
+        user_data = await db.get_user_data(user_id)
+        if not user_data:
+            await callback.message.answer("❌ Не удалось получить данные пользователя.")
+            await callback.answer()
+            return
+
+        import time
+        current_time = int(time.time())
+
+        if user_data.is_paid and user_data.subscription_expiry > current_time:
+            # Показать дни до окончания подписки
+            days_left = (user_data.subscription_expiry - current_time) // (24 * 60 * 60)
+            message_text = f"👤 *Информация о пользователе*\n\n✅ У вас активная подписка!\n📅 Дней до окончания: {days_left}"
+        else:
+            # Показать оставшиеся попытки
+            remaining_attempts = max(0, 3 - user_data.trials_used)
+            message_text = f"👤 *Информация о пользователе*\n\n🎯 Оставшихся бесплатных попыток: {remaining_attempts}\n💳 Для неограниченного использования оформите подписку!"
+
+        await callback.message.answer(message_text, parse_mode='Markdown', reply_markup=ui.create_menu_keyboard())
+
+    elif data == 'subscribe':
         await subscription_handler(callback.message)
         await callback.answer()
 
@@ -570,6 +595,7 @@ def register_handlers(dp: Dispatcher, bot: Bot):
     dp.message.register(subscription_handler, Command("subscription", "subscribe"))
     dp.message.register(menu_handler, Command("menu"))
     dp.message.register(settings_cmd, Command("settings"))
+    dp.message.register(user_cmd, Command("user"))
     dp.message.register(referral_cmd, Command("referral"))
     dp.message.register(support_cmd, Command("support"))
     dp.callback_query.register(callback_handler)

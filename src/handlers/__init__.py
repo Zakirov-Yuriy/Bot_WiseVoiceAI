@@ -11,6 +11,30 @@ from ..localization import get_string
 from ..ui import create_menu_keyboard, create_settings_keyboard, create_transcription_selection_keyboard, ensure_user_settings
 from .command_handlers import start_handler, menu_handler, settings_cmd, referral_cmd, support_cmd
 from .payment_handlers import subscription_handler, confirm_payment_handler, user_info_handler
+
+
+async def user_handler(message: types.Message) -> None:
+    """Показать информацию о текущем пользователе"""
+    user_id = message.from_user.id
+
+    user_data = await db.get_user_data(user_id)
+    if not user_data:
+        await message.answer("❌ Не удалось получить данные пользователя.")
+        return
+
+    import time
+    current_time = int(time.time())
+
+    if user_data.is_paid and user_data.subscription_expiry > current_time:
+        # Показать дни до окончания подписки
+        days_left = (user_data.subscription_expiry - current_time) // (24 * 60 * 60)
+        message_text = f"👤 *Информация о пользователе*\n\n✅ У вас активная подписка!\n📅 Дней до окончания: {days_left}"
+    else:
+        # Показать оставшиеся попытки
+        remaining_attempts = max(0, 3 - user_data.trials_used)
+        message_text = f"👤 *Информация о пользователе*\n\n🎯 Оставшихся бесплатных попыток: {remaining_attempts}\n💳 Для неограниченного использования оформите подписку!"
+
+    await message.answer(message_text, parse_mode='Markdown', reply_markup=create_menu_keyboard())
 from .file_handlers import universal_handler, process_audio_file_for_user
 
 logger = logging.getLogger(__name__)
@@ -21,7 +45,29 @@ async def callback_handler(callback: types.CallbackQuery, bot: Bot) -> None:
     data = callback.data
     logger.info(f"Callback от user_id {user_id}: {data}")
 
-    if data == 'subscribe':
+    if data == 'user':
+        user_data = await db.get_user_data(user_id)
+        if not user_data:
+            await callback.message.answer("❌ Не удалось получить данные пользователя.")
+            await callback.answer()
+            return
+
+        import time
+        current_time = int(time.time())
+
+        if user_data.is_paid and user_data.subscription_expiry > current_time:
+            # Показать дни до окончания подписки
+            days_left = (user_data.subscription_expiry - current_time) // (24 * 60 * 60)
+            message_text = f"👤 *Информация о пользователе*\n\n✅ У вас активная подписка!\n📅 Дней до окончания: {days_left}"
+        else:
+            # Показать оставшиеся попытки
+            remaining_attempts = max(0, 3 - user_data.trials_used)
+            message_text = f"👤 *Информация о пользователе*\n\n🎯 Оставшихся бесплатных попыток: {remaining_attempts}\n💳 Для неограниченного использования оформите подписку!"
+
+        await callback.message.answer(message_text, parse_mode='Markdown', reply_markup=create_menu_keyboard())
+        await callback.answer()
+
+    elif data == 'subscribe':
         await subscription_handler(callback.message)
         await callback.answer()
 
@@ -142,6 +188,7 @@ def register_handlers(dp: Dispatcher, bot: Bot):
     dp.message.register(start_handler, CommandStart())
     dp.message.register(subscription_handler, Command("subscription", "subscribe"))
     dp.message.register(confirm_payment_handler, Command("confirm_payment"))
+    dp.message.register(user_handler, Command("user"))
     dp.message.register(user_info_handler, Command("user_info"))
     dp.message.register(menu_handler, Command("menu"))
     dp.message.register(settings_cmd, Command("settings"))
