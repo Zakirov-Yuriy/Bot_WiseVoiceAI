@@ -17,9 +17,6 @@ pydantic-settings~=2.0
 dependency-injector~=4.48
 fastapi~=0.104
 uvicorn[standard]~=0.24
-certifi~=2023.11
-pyopenssl~=23.3
-httpx[http2]~=0.27
 
 # Reliability and Performance
 redis~=7.0

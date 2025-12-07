@@ -55,7 +55,7 @@ locales: Dict[str, Dict[str, str]] = {
         'try_again': "Send links or files here ⬇️ and the bot will transcribe them for you",
         'timeout_error': "Processing timeout exceeded",
         'telegram_timeout': "Telegram connection timeout",
-        'no_trials': "You have used your 2 free trials.\nSubscribe: /subscribe",
+        'no_trials': "You have used your 3 free trials.\nSubscribe: /subscribe",
         'file_too_large': "File too large ({size} bytes). Limit: {limit} bytes. Subscribe to increase the limit.",
         'menu': "Select a command from the menu:",
         'payment_success': "🎉 Subscription successfully activated! Access granted until {expiry_date}.",
