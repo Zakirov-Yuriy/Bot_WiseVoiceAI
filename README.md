@@ -113,6 +113,9 @@ SUBSCRIPTION_DURATION_DAYS=30
 ```bash
 # На сервере с публичным IP
 python webhook_server.py
+
+# С HTTPS (рекомендуется для продакшена)
+uvicorn webhook_server:app --host 0.0.0.0 --port 8001 --ssl-keyfile /path/to/key.pem --ssl-certfile /path/to/cert.pem
 ```
 
 ### Тестирование webhook
