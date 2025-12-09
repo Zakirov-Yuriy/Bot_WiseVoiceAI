@@ -19,6 +19,7 @@ services:
       - YOOMONEY_CLIENT_SECRET=${YOOMONEY_CLIENT_SECRET}
       - PAYMENT_AMOUNT=${PAYMENT_AMOUNT}
       - YOOMONEY_REDIRECT_URI=${YOOMONEY_REDIRECT_URI}
+      - YOOMONEY_WEBHOOK_URL=${YOOMONEY_WEBHOOK_URL}
       - YOOMONEY_BASE_URL=${YOOMONEY_BASE_URL}
       - ADMIN_USER_IDS=${ADMIN_USER_IDS}
       - ASSEMBLYAI_BASE_URL=${ASSEMBLYAI_BASE_URL}
@@ -49,9 +50,12 @@ services:
       - SUPPORTED_AUDIO_FORMATS=${SUPPORTED_AUDIO_FORMATS}
       - SUPPORTED_VIDEO_FORMATS=${SUPPORTED_VIDEO_FORMATS}
     ports:
-      - "8000:8000"  # Prometheus metrics
+      - "80:80"     # HTTP
+      - "443:443"   # HTTPS
+      - "8000:8000" # Prometheus metrics
     volumes:
       - ./logs:/var/log/supervisor
+      - /root/.acme.sh:/root/.acme.sh:ro  # Mount acme.sh certificates
     depends_on:
       - redis
       - mysql

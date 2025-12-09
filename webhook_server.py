@@ -74,8 +74,12 @@ async def yoomoney_webhook(request: Request):
             logger.error(f"Failed to extract user_id from label {label}: {e}")
             return PlainTextResponse("Invalid user_id", status_code=400)
 
+        # Get user data to extract username for logging
+        user_data = await get_user_data(user_id)
+        username = user_data.username if user_data else None
+
         # Activate subscription
-        success = await confirm_payment_and_activate_subscription(label)
+        success = await confirm_payment_and_activate_subscription(label, username=username)
 
         if success:
             logger.info(f"Subscription activated successfully for payment label: {label}")
