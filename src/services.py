@@ -120,7 +120,7 @@ async def create_yoomoney_payment(user_id: int, amount: int, description: str) -
         "receiver": YOOMONEY_WALLET,
         "quickpay-form": "shop",
         "targets": description,
-        "paymentType": "SB",
+        "paymentType": "AC",
         "sum": amount,
         "label": payment_label,
     }
