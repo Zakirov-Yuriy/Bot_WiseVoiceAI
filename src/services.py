@@ -114,7 +114,9 @@ openrouter_client = OpenRouterClient()
 # =============================
 async def create_yoomoney_payment(user_id: int, amount: int, description: str) -> Tuple[Optional[str], Optional[str]]:
     """Создает ссылку на оплату YooMoney."""
-    payment_label = f"sub_{user_id}_{uuid.uuid4()}"
+    
+    payment_label = f"sub_{uuid.uuid4()}"
+
     quickpay_url = f"{YOOMONEY_BASE_URL}/quickpay/confirm.xml"
     params = {
         "receiver": YOOMONEY_WALLET,
